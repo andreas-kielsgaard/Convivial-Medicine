@@ -57,6 +57,12 @@ Default local database URL:
 postgresql+psycopg://convivial:convivial@localhost:5432/convivial_medicine
 ```
 
+Apply database migrations:
+
+```powershell
+uv run alembic upgrade head
+```
+
 MinIO API is exposed on `http://localhost:9000`.
 
 MinIO console is exposed on `http://localhost:9001`.
