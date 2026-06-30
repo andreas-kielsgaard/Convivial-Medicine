@@ -1,0 +1,10 @@
+{
+  "manifest_version": "1",
+  "name": "vitamin_D_ms_seed_v1",
+  "db": "pubmed",
+  "term": "(\"multiple sclerosis\"[Title/Abstract]) AND (\"vitamin D\"[Title/Abstract] OR cholecalciferol[Title/Abstract] OR \"25-hydroxyvitamin D\"[Title/Abstract])",
+  "usehistory": true,
+  "retmax": 50,
+  "retmode": "json",
+  "notes": "Phase One seed query draft. Do not execute in bootstrap branch."
+}
