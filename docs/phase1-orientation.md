@@ -6,6 +6,15 @@ search UI, a document reading product, or a general literature assistant.
 The acceptance target for Phase One is a reproducible 50-paper
 `vitamin_D_ms_seed_v1` corpus build with stable raw and derived artifacts.
 
+Artifact payloads use canonical `sha256:<64 lowercase hex>` hashes. Manifest
+hashes are computed from deterministic JSON bytes with sorted keys and no
+insignificant whitespace. The current implementation is a project-level
+deterministic JSON subset, not a full RFC 8785/JCS implementation.
+
+Later adapters must write raw source response bytes to content-addressed storage
+before parsing. Parsed snapshots and derived artifacts can then refer back to
+the stored payload hash and parent manifest hashes.
+
 ## Source Order
 
 1. PubMed defines corpus membership.
@@ -19,7 +28,7 @@ The acceptance target for Phase One is a reproducible 50-paper
 - Source adapter implementations beyond the schema v1 persistence boundary.
 - Task orchestration behavior beyond the initial build run tables.
 - Source retry, rate-limit, and provenance policies.
-- Artifact persistence beyond deterministic local primitives.
+- External artifact persistence beyond deterministic local primitives.
 - Frontend or product UI routes.
 - Notebook workflows.
 - Graph or vector databases.

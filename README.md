@@ -9,7 +9,14 @@ membership, PMC-approved services for lawful full text, OpenAlex singleton
 lookups for enrichment, content-addressed artifacts, and Postgres for normalized
 build state.
 
-This bootstrap branch only establishes the repository rails.
+This branch establishes the local deterministic substrate for Phase One
+artifacts. Raw source bytes are addressed by `sha256:<hex>` payload hashes and
+written under a content-addressed filesystem layout for tests and local
+development. Manifest hashes are computed from a project-level deterministic
+JSON subset: UTF-8 bytes, sorted object keys, and no insignificant whitespace.
+
+Later source adapter branches must store raw source bytes before parsing them,
+then record manifests and snapshots from those immutable bytes.
 
 ## Development
 
