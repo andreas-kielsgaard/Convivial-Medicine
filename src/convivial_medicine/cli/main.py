@@ -4,6 +4,7 @@ import typer
 
 from convivial_medicine import __version__
 from convivial_medicine.config import get_settings
+from convivial_medicine.storage.db import DatabaseConnectionError, check_database_connection
 
 app = typer.Typer(
     name="corpus",
@@ -28,7 +29,13 @@ def _not_implemented(command: str) -> None:
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    check_db: bool = typer.Option(
+        False,
+        "--check-db",
+        help="Attempt a live database connection.",
+    ),
+) -> None:
     """Print basic package and configuration checks."""
     settings = get_settings()
     typer.echo(f"package: convivial_medicine {__version__}")
@@ -43,6 +50,15 @@ def doctor() -> None:
     )
     typer.echo(f"ncbi_tool: {'set' if settings.ncbi_tool else 'missing'}")
     typer.echo(f"ncbi_email: {'set' if settings.ncbi_email else 'missing'}")
+    if check_db:
+        try:
+            result = check_database_connection(settings)
+        except DatabaseConnectionError as exc:
+            typer.echo(f"database_connection: failed ({exc})")
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"database_connection: ok ({result.dialect})")
+    else:
+        typer.echo("database_connection: skipped")
     typer.echo("status: ok")
 
 

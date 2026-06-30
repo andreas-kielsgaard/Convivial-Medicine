@@ -16,9 +16,14 @@ The acceptance target for Phase One is a reproducible 50-paper
 ## Deferred Work
 
 - Live PubMed, PMC, and OpenAlex adapters.
-- Full Postgres schema and task orchestration state.
+- Source adapter implementations beyond the schema v1 persistence boundary.
+- Task orchestration behavior beyond the initial build run tables.
 - Source retry, rate-limit, and provenance policies.
 - Artifact persistence beyond deterministic local primitives.
 - Frontend or product UI routes.
 - Notebook workflows.
 - Graph or vector databases.
+
+Schema v1 now provides the initial Postgres tables for manifests, source
+snapshots, works, identifiers, full-text assets, OpenAlex enrichment, build
+runs, slice membership, and review conflicts.

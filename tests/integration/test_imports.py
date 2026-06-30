@@ -16,7 +16,9 @@ def test_health_endpoint() -> None:
 
 def test_import_storage_modules() -> None:
     from convivial_medicine.storage.db import make_engine
+    from convivial_medicine.storage.models import Base
     from convivial_medicine.storage.object_store import object_store_config
 
     assert callable(make_engine)
+    assert "works" in Base.metadata.tables
     assert callable(object_store_config)
