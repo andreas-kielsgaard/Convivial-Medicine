@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Annotated
+
 import typer
 
 from convivial_medicine import __version__
+from convivial_medicine.adapters.pubmed.esearch import (
+    PUBMED_ESEARCH_ENDPOINT,
+    PubMedESearchAdapterResult,
+    build_esearch_params,
+    process_esearch_response_bytes,
+    run_esearch,
+)
 from convivial_medicine.config import get_settings
+from convivial_medicine.domain.manifests import load_query_manifest
+from convivial_medicine.storage.artifacts import LocalArtifactStore
 from convivial_medicine.storage.db import DatabaseConnectionError, check_database_connection
+
+DEFAULT_QUERY_MANIFEST_PATH = Path("manifests/vitamin_D_ms_seed_v1.json")
+DEFAULT_ARTIFACT_ROOT = Path(".artifacts")
 
 app = typer.Typer(
     name="corpus",
@@ -63,9 +78,74 @@ def doctor(
 
 
 @query_app.command("pubmed")
-def query_pubmed() -> None:
+def query_pubmed(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Query manifest to execute or replay."),
+    ] = DEFAULT_QUERY_MANIFEST_PATH,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make a live PubMed ESearch network call."),
+    ] = False,
+    fixture: Annotated[
+        Path | None,
+        typer.Option(
+            "--fixture",
+            help="Read saved PubMed ESearch response bytes instead of calling the network.",
+        ),
+    ] = None,
+) -> None:
     """Prepare a PubMed membership query."""
-    _not_implemented("corpus query pubmed")
+    if live and fixture is not None:
+        typer.echo("Use either --live or --fixture, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    if not live and fixture is None:
+        typer.echo(
+            "No PubMed query run. Pass --fixture PATH to replay bytes or --live to call NCBI."
+        )
+        return
+
+    query_manifest = load_query_manifest(manifest)
+    artifact_store = LocalArtifactStore(artifact_root)
+
+    if fixture is not None:
+        result = process_esearch_response_bytes(
+            raw_bytes=fixture.read_bytes(),
+            artifact_store=artifact_store,
+            endpoint=PUBMED_ESEARCH_ENDPOINT,
+            request_params=build_esearch_params(query_manifest),
+            http_status=200,
+            content_type="application/json",
+        )
+        _print_pubmed_esearch_summary(result)
+        return
+
+    settings = get_settings()
+    if not settings.ncbi_email:
+        typer.echo("NCBI_EMAIL is required for --live PubMed ESearch calls.", err=True)
+        raise typer.Exit(code=1)
+
+    result = run_esearch(
+        manifest=query_manifest,
+        artifact_store=artifact_store,
+        settings=settings,
+    )
+    _print_pubmed_esearch_summary(result)
+
+
+def _print_pubmed_esearch_summary(result: PubMedESearchAdapterResult) -> None:
+    parsed = result.parsed
+    typer.echo(f"count: {parsed.count}")
+    typer.echo(f"pmids_returned: {len(parsed.pmids)}")
+    typer.echo(f"webenv_present: {parsed.webenv is not None}")
+    typer.echo(f"query_key_present: {parsed.query_key is not None}")
+    typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
+    typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
 
 
 @build_app.command("seed")

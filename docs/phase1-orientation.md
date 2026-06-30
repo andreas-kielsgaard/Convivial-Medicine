@@ -15,6 +15,10 @@ Later adapters must write raw source response bytes to content-addressed storage
 before parsing. Parsed snapshots and derived artifacts can then refer back to
 the stored payload hash and parent manifest hashes.
 
+PubMed ESearch is now the first adapter. It defines membership for the seed
+corpus and preserves raw response bytes before parsing. PubMed ESummary and
+EFetch remain deferred.
+
 ## Source Order
 
 1. PubMed defines corpus membership.
@@ -24,8 +28,10 @@ the stored payload hash and parent manifest hashes.
 
 ## Deferred Work
 
-- Live PubMed, PMC, and OpenAlex adapters.
-- Source adapter implementations beyond the schema v1 persistence boundary.
+- PubMed ESummary and EFetch adapters.
+- Live PMC and OpenAlex adapters.
+- Source adapter implementations beyond PubMed ESearch and the schema v1
+  persistence boundary.
 - Task orchestration behavior beyond the initial build run tables.
 - Source retry, rate-limit, and provenance policies.
 - External artifact persistence beyond deterministic local primitives.
