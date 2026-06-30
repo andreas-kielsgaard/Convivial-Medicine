@@ -66,6 +66,7 @@ class SourceSnapshot(Base):
     __tablename__ = "source_snapshots"
     __table_args__ = (
         Index("ix_source_snapshots_source_operation", "source_name", "operation"),
+        Index("ix_source_snapshots_request_fingerprint", "request_fingerprint"),
         Index(
             "ix_source_snapshots_provider_payload_gin",
             "provider_payload",
@@ -77,8 +78,16 @@ class SourceSnapshot(Base):
     source_name: Mapped[str] = mapped_column(Text, nullable=False)
     operation: Mapped[str] = mapped_column(Text, nullable=False)
     source_record_id: Mapped[str | None] = mapped_column(Text)
+    request_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    request_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    http_status: Mapped[int | None] = mapped_column(Integer)
     content_type: Mapped[str] = mapped_column(Text, nullable=False)
     provider_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    response_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     raw_artifact_uri: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -89,6 +98,7 @@ class SourceSnapshot(Base):
 class SnapshotManifest(Base):
     __tablename__ = "snapshot_manifests"
     __table_args__ = (
+        Index("ix_snapshot_manifests_artifact_type", "artifact_type"),
         Index(
             "ix_snapshot_manifests_manifest_payload_gin",
             "manifest_payload",
@@ -96,17 +106,17 @@ class SnapshotManifest(Base):
         ),
     )
 
-    snapshot_manifest_hash: Mapped[str] = mapped_column(Text, primary_key=True)
-    query_manifest_hash: Mapped[str | None] = mapped_column(
-        ForeignKey("query_manifests.manifest_hash", ondelete="SET NULL")
-    )
-    source_name: Mapped[str] = mapped_column(Text, nullable=False)
-    operation: Mapped[str] = mapped_column(Text, nullable=False)
-    snapshot_hashes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    manifest_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    artifact_type: Mapped[str] = mapped_column(Text, nullable=False)
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(Text, nullable=False)
     parent_hashes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     manifest_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    manifest_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -117,10 +127,16 @@ class Work(TimestampMixin, Base):
 
     work_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     status: Mapped[str] = mapped_column(Text, nullable=False, default=WorkStatus.CANDIDATE.value)
+    current_manifest_hash: Mapped[str | None] = mapped_column(
+        ForeignKey("snapshot_manifests.manifest_hash", ondelete="SET NULL")
+    )
     title: Mapped[str | None] = mapped_column(Text)
     publication_year: Mapped[int | None] = mapped_column(Integer)
     published_at: Mapped[date | None] = mapped_column(Date)
     primary_doi: Mapped[str | None] = mapped_column(Text)
+    normalized_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
 
 
 class WorkIdentifier(Base):
@@ -188,6 +204,10 @@ class FulltextAsset(Base):
     legal_status: Mapped[str] = mapped_column(
         Text, nullable=False, default=LegalFulltextStatus.NOT_CHECKED.value
     )
+    license_group: Mapped[str | None] = mapped_column(Text)
+    license_observation: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     object_uri: Mapped[str | None] = mapped_column(Text)
     parent_hashes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
@@ -203,8 +223,12 @@ class FulltextAsset(Base):
 class EnrichmentOpenAlex(TimestampMixin, Base):
     __tablename__ = "enrichment_openalex"
     __table_args__ = (
-        UniqueConstraint("work_id", name="uq_enrichment_openalex_work_id"),
-        UniqueConstraint("openalex_id", name="uq_enrichment_openalex_openalex_id"),
+        UniqueConstraint(
+            "work_id",
+            "source_snapshot_hash",
+            name="uq_enrichment_openalex_work_source_snapshot",
+        ),
+        Index("ix_enrichment_openalex_openalex_id", "openalex_id"),
         Index(
             "ix_enrichment_openalex_provider_payload_gin",
             "provider_payload",
@@ -238,7 +262,7 @@ class BuildRun(TimestampMixin, Base):
         ForeignKey("query_manifests.manifest_hash", ondelete="SET NULL")
     )
     snapshot_manifest_hash: Mapped[str | None] = mapped_column(
-        ForeignKey("snapshot_manifests.snapshot_manifest_hash", ondelete="SET NULL")
+        ForeignKey("snapshot_manifests.manifest_hash", ondelete="SET NULL")
     )
     parameters: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
@@ -256,10 +280,11 @@ class SliceMember(Base):
     __table_args__ = (
         UniqueConstraint(
             "build_run_id",
-            "slice_name",
+            "slice_hash",
             "work_id",
-            name="uq_slice_members_build_slice_work",
+            name="uq_slice_members_build_slice_hash_work",
         ),
+        Index("ix_slice_members_slice_hash", "slice_hash"),
         Index("ix_slice_members_work_id", "work_id"),
         Index("ix_slice_members_metadata_gin", "membership_metadata", postgresql_using="gin"),
     )
@@ -269,6 +294,10 @@ class SliceMember(Base):
         ForeignKey("build_runs.build_run_id", ondelete="CASCADE")
     )
     work_id: Mapped[UUID] = mapped_column(ForeignKey("works.work_id", ondelete="CASCADE"))
+    member_manifest_hash: Mapped[str | None] = mapped_column(
+        ForeignKey("snapshot_manifests.manifest_hash", ondelete="SET NULL")
+    )
+    slice_hash: Mapped[str] = mapped_column(Text, nullable=False)
     slice_name: Mapped[str] = mapped_column(Text, nullable=False)
     rank: Mapped[int | None] = mapped_column(Integer)
     membership_metadata: Mapped[dict[str, Any]] = mapped_column(

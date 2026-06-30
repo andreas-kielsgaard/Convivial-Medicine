@@ -48,8 +48,22 @@ def upgrade() -> None:
         sa.Column("source_name", sa.Text(), nullable=False),
         sa.Column("operation", sa.Text(), nullable=False),
         sa.Column("source_record_id", sa.Text()),
+        sa.Column("request_fingerprint", sa.Text(), nullable=False),
+        sa.Column(
+            "request_metadata",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column("http_status", sa.Integer()),
         sa.Column("content_type", sa.Text(), nullable=False),
         sa.Column("provider_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "response_metadata",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
         sa.Column("retrieved_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("raw_artifact_uri", sa.Text()),
         sa.Column(
@@ -66,6 +80,11 @@ def upgrade() -> None:
         postgresql_using="gin",
     )
     op.create_index(
+        "ix_source_snapshots_request_fingerprint",
+        "source_snapshots",
+        ["request_fingerprint"],
+    )
+    op.create_index(
         "ix_source_snapshots_source_operation",
         "source_snapshots",
         ["source_name", "operation"],
@@ -73,11 +92,10 @@ def upgrade() -> None:
 
     op.create_table(
         "snapshot_manifests",
-        sa.Column("snapshot_manifest_hash", sa.Text(), primary_key=True),
-        sa.Column("query_manifest_hash", sa.Text()),
-        sa.Column("source_name", sa.Text(), nullable=False),
-        sa.Column("operation", sa.Text(), nullable=False),
-        sa.Column("snapshot_hashes", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("manifest_hash", sa.Text(), primary_key=True),
+        sa.Column("artifact_type", sa.Text(), nullable=False),
+        sa.Column("schema_version", sa.Text(), nullable=False),
+        sa.Column("payload_hash", sa.Text(), nullable=False),
         sa.Column(
             "parent_hashes",
             postgresql.JSONB(astext_type=sa.Text()),
@@ -86,16 +104,22 @@ def upgrade() -> None:
         ),
         sa.Column("manifest_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column(
+            "metadata",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
+        sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(
-            ["query_manifest_hash"],
-            ["query_manifests.manifest_hash"],
-            ondelete="SET NULL",
-        ),
+    )
+    op.create_index(
+        "ix_snapshot_manifests_artifact_type",
+        "snapshot_manifests",
+        ["artifact_type"],
     )
     op.create_index(
         "ix_snapshot_manifests_manifest_payload_gin",
@@ -108,10 +132,17 @@ def upgrade() -> None:
         "works",
         sa.Column("work_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("status", sa.Text(), nullable=False),
+        sa.Column("current_manifest_hash", sa.Text()),
         sa.Column("title", sa.Text()),
         sa.Column("publication_year", sa.Integer()),
         sa.Column("published_at", sa.Date()),
         sa.Column("primary_doi", sa.Text()),
+        sa.Column(
+            "normalized_payload",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -123,6 +154,11 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             server_default=sa.text("now()"),
             nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["current_manifest_hash"],
+            ["snapshot_manifests.manifest_hash"],
+            ondelete="SET NULL",
         ),
     )
 
@@ -198,6 +234,13 @@ def upgrade() -> None:
         sa.Column("asset_kind", sa.Text(), nullable=False),
         sa.Column("content_type", sa.Text(), nullable=False),
         sa.Column("legal_status", sa.Text(), nullable=False),
+        sa.Column("license_group", sa.Text()),
+        sa.Column(
+            "license_observation",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"),
+            nullable=False,
+        ),
         sa.Column("object_uri", sa.Text()),
         sa.Column(
             "parent_hashes",
@@ -264,8 +307,16 @@ def upgrade() -> None:
             ["source_snapshots.snapshot_hash"],
             ondelete="SET NULL",
         ),
-        sa.UniqueConstraint("openalex_id", name="uq_enrichment_openalex_openalex_id"),
-        sa.UniqueConstraint("work_id", name="uq_enrichment_openalex_work_id"),
+        sa.UniqueConstraint(
+            "work_id",
+            "source_snapshot_hash",
+            name="uq_enrichment_openalex_work_source_snapshot",
+        ),
+    )
+    op.create_index(
+        "ix_enrichment_openalex_openalex_id",
+        "enrichment_openalex",
+        ["openalex_id"],
     )
     op.create_index(
         "ix_enrichment_openalex_projection_gin",
@@ -321,7 +372,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["snapshot_manifest_hash"],
-            ["snapshot_manifests.snapshot_manifest_hash"],
+            ["snapshot_manifests.manifest_hash"],
             ondelete="SET NULL",
         ),
     )
@@ -338,6 +389,8 @@ def upgrade() -> None:
         sa.Column("slice_member_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("build_run_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("work_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("member_manifest_hash", sa.Text()),
+        sa.Column("slice_hash", sa.Text(), nullable=False),
         sa.Column("slice_name", sa.Text(), nullable=False),
         sa.Column("rank", sa.Integer()),
         sa.Column(
@@ -357,12 +410,17 @@ def upgrade() -> None:
             ["build_runs.build_run_id"],
             ondelete="CASCADE",
         ),
+        sa.ForeignKeyConstraint(
+            ["member_manifest_hash"],
+            ["snapshot_manifests.manifest_hash"],
+            ondelete="SET NULL",
+        ),
         sa.ForeignKeyConstraint(["work_id"], ["works.work_id"], ondelete="CASCADE"),
         sa.UniqueConstraint(
             "build_run_id",
-            "slice_name",
+            "slice_hash",
             "work_id",
-            name="uq_slice_members_build_slice_work",
+            name="uq_slice_members_build_slice_hash_work",
         ),
     )
     op.create_index(
@@ -371,6 +429,7 @@ def upgrade() -> None:
         ["membership_metadata"],
         postgresql_using="gin",
     )
+    op.create_index("ix_slice_members_slice_hash", "slice_members", ["slice_hash"])
     op.create_index("ix_slice_members_work_id", "slice_members", ["work_id"])
 
     op.create_table(
@@ -432,6 +491,7 @@ def downgrade() -> None:
     op.drop_table("review_conflicts")
 
     op.drop_index("ix_slice_members_work_id", table_name="slice_members")
+    op.drop_index("ix_slice_members_slice_hash", table_name="slice_members")
     op.drop_index("ix_slice_members_metadata_gin", table_name="slice_members")
     op.drop_table("slice_members")
 
@@ -441,6 +501,7 @@ def downgrade() -> None:
 
     op.drop_index("ix_enrichment_openalex_provider_payload_gin", table_name="enrichment_openalex")
     op.drop_index("ix_enrichment_openalex_projection_gin", table_name="enrichment_openalex")
+    op.drop_index("ix_enrichment_openalex_openalex_id", table_name="enrichment_openalex")
     op.drop_table("enrichment_openalex")
 
     op.drop_index("ix_fulltext_assets_work_legal_status", table_name="fulltext_assets")
@@ -457,9 +518,11 @@ def downgrade() -> None:
     op.drop_table("works")
 
     op.drop_index("ix_snapshot_manifests_manifest_payload_gin", table_name="snapshot_manifests")
+    op.drop_index("ix_snapshot_manifests_artifact_type", table_name="snapshot_manifests")
     op.drop_table("snapshot_manifests")
 
     op.drop_index("ix_source_snapshots_source_operation", table_name="source_snapshots")
+    op.drop_index("ix_source_snapshots_request_fingerprint", table_name="source_snapshots")
     op.drop_index("ix_source_snapshots_provider_payload_gin", table_name="source_snapshots")
     op.drop_table("source_snapshots")
 
