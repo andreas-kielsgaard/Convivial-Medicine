@@ -2,11 +2,9 @@
 
 Phase One has intentionally narrow source boundaries.
 
-PubMed defines corpus membership. Query execution and result set membership
-belong to PubMed branches, not to this bootstrap branch.
-
-Later PubMed adapter work must store raw response bytes by content hash before
-parsing membership or record payloads.
+PubMed defines corpus membership. PubMed ESearch is the membership adapter and
+stores raw response bytes by content hash before parsing. PubMed ESummary and
+EFetch remain deferred.
 
 PMC is the full-text gate. Full text must come through PMC-approved services
 such as PMC ID Converter and PMC BioC when available. Do not scrape PMC HTML.

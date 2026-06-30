@@ -18,6 +18,10 @@ JSON subset: UTF-8 bytes, sorted object keys, and no insignificant whitespace.
 Later source adapter branches must store raw source bytes before parsing them,
 then record manifests and snapshots from those immutable bytes.
 
+PubMed ESearch is the first adapter boundary: it defines corpus membership only.
+Raw ESearch JSON bytes are stored before parsing. PubMed ESummary and EFetch are
+still deferred.
+
 ## Development
 
 Install dependencies:
