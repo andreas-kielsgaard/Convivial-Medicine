@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import typer
 
@@ -13,6 +13,7 @@ from convivial_medicine.adapters.pubmed.efetch import (
     process_efetch_response_bytes,
     run_efetch,
 )
+from convivial_medicine.adapters.pubmed.errors import PubMedHTTPStatusError
 from convivial_medicine.adapters.pubmed.esearch import (
     PUBMED_ESEARCH_ENDPOINT,
     PubMedESearchAdapterResult,
@@ -174,11 +175,14 @@ def query_pubmed(
         typer.echo("NCBI_EMAIL is required for --live PubMed ESearch calls.", err=True)
         raise typer.Exit(code=1)
 
-    result = run_esearch(
-        manifest=query_manifest,
-        artifact_store=artifact_store,
-        settings=settings,
-    )
+    try:
+        result = run_esearch(
+            manifest=query_manifest,
+            artifact_store=artifact_store,
+            settings=settings,
+        )
+    except PubMedHTTPStatusError as exc:
+        _exit_pubmed_http_status_error(exc)
     _persist_pubmed_esearch_if_requested(
         persist_db=persist_db,
         query_manifest=query_manifest,
@@ -310,11 +314,14 @@ def fetch_pubmed_summary(
         typer.echo("NCBI_EMAIL is required for --live PubMed ESummary calls.", err=True)
         raise typer.Exit(code=1)
 
-    result = run_esummary(
-        pmids=requested_pmids,
-        artifact_store=artifact_store,
-        settings=settings,
-    )
+    try:
+        result = run_esummary(
+            pmids=requested_pmids,
+            artifact_store=artifact_store,
+            settings=settings,
+        )
+    except PubMedHTTPStatusError as exc:
+        _exit_pubmed_http_status_error(exc)
     _persist_pubmed_esummary_if_requested(
         persist_db=persist_db,
         result=result,
@@ -438,11 +445,14 @@ def fetch_pubmed_records(
         typer.echo("NCBI_EMAIL is required for --live PubMed EFetch calls.", err=True)
         raise typer.Exit(code=1)
 
-    result = run_efetch(
-        pmids=requested_pmids,
-        artifact_store=artifact_store,
-        settings=settings,
-    )
+    try:
+        result = run_efetch(
+            pmids=requested_pmids,
+            artifact_store=artifact_store,
+            settings=settings,
+        )
+    except PubMedHTTPStatusError as exc:
+        _exit_pubmed_http_status_error(exc)
     _persist_pubmed_efetch_if_requested(
         persist_db=persist_db,
         result=result,
@@ -480,6 +490,20 @@ def _print_pubmed_efetch_summary(
     typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
     typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
     typer.echo(f"db_persisted: {db_persisted}")
+
+
+def _exit_pubmed_http_status_error(exc: PubMedHTTPStatusError) -> NoReturn:
+    typer.echo(
+        (
+            f"PubMed {exc.operation} failed with HTTP {exc.http_status}. "
+            f"Raw response artifact was preserved: "
+            f"raw_payload_hash={exc.raw_payload_hash}; "
+            f"manifest_hash={exc.source_snapshot_manifest_hash}; "
+            f"raw_artifact_uri={exc.raw_artifact_uri}."
+        ),
+        err=True,
+    )
+    raise typer.Exit(code=1) from exc
 
 
 @fetch_app.command("pmc-bioc")

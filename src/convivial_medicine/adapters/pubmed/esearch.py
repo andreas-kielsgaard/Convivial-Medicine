@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import httpx
 
 from convivial_medicine.adapters.pubmed.models import PubMedESearchResult
-from convivial_medicine.adapters.pubmed.request_fingerprint import (
-    redacted_request_params,
-    request_fingerprint,
+from convivial_medicine.adapters.pubmed.source_response import (
+    PubMedStoredSourceResponse,
+    preserve_pubmed_source_response,
+    pubmed_http_status_error,
 )
 from convivial_medicine.config import Settings, get_settings
 from convivial_medicine.domain.manifests import QueryManifest, SourceSnapshotManifest
 from convivial_medicine.storage.artifacts import LocalArtifactStore, StoredArtifact
 
 PUBMED_ESEARCH_ENDPOINT = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-PUBMED_SOURCE_NAME = "pubmed"
 PUBMED_ESEARCH_OPERATION = "esearch"
 PUBMED_ESEARCH_SCHEMA_VERSION = "pubmed-esearch-v1"
 DEFAULT_TIMEOUT_SECONDS = 20.0
@@ -70,27 +70,27 @@ def process_esearch_response_bytes(
     content_type: str | None,
     retrieved_at: datetime | None = None,
 ) -> PubMedESearchAdapterResult:
-    resolved_retrieved_at = retrieved_at or datetime.now(UTC)
-    resolved_content_type = content_type or "application/octet-stream"
-    resolved_request_fingerprint = request_fingerprint(
-        method="GET",
-        endpoint=endpoint,
-        params=request_params,
-    )
-    request_metadata = {
-        "endpoint": endpoint,
-        "method": "GET",
-        "params": redacted_request_params(request_params),
-    }
-    raw_artifact = artifact_store.write_bytes(raw_bytes)
-    manifest = _build_source_snapshot_manifest(
-        raw_payload_hash=raw_artifact.artifact_hash,
+    stored_response = preserve_pubmed_source_response(
+        raw_bytes=raw_bytes,
+        artifact_store=artifact_store,
         endpoint=endpoint,
         request_params=request_params,
+        operation=PUBMED_ESEARCH_OPERATION,
+        schema_version=PUBMED_ESEARCH_SCHEMA_VERSION,
         http_status=http_status,
-        content_type=resolved_content_type,
-        resolved_request_fingerprint=resolved_request_fingerprint,
+        content_type=content_type,
+        retrieved_at=retrieved_at,
     )
+    return _parse_stored_esearch_response(raw_bytes=raw_bytes, stored_response=stored_response)
+
+
+def _parse_stored_esearch_response(
+    *,
+    raw_bytes: bytes,
+    stored_response: PubMedStoredSourceResponse,
+) -> PubMedESearchAdapterResult:
+    manifest = stored_response.source_snapshot_manifest
+    raw_artifact = stored_response.raw_artifact
     provider_payload = _parse_json_bytes(raw_bytes)
     parsed = PubMedESearchResult.from_provider_payload(
         provider_payload,
@@ -108,14 +108,14 @@ def process_esearch_response_bytes(
         raw_artifact=raw_artifact,
         source_snapshot_manifest=manifest,
         parsed=parsed,
-        endpoint=endpoint,
-        request_fingerprint=resolved_request_fingerprint,
-        request_metadata=request_metadata,
-        http_status=http_status,
-        content_type=resolved_content_type,
+        endpoint=stored_response.endpoint,
+        request_fingerprint=stored_response.request_fingerprint,
+        request_metadata=stored_response.request_metadata,
+        http_status=stored_response.http_status,
+        content_type=stored_response.content_type,
         provider_payload=provider_payload,
         response_metadata=response_metadata,
-        retrieved_at=resolved_retrieved_at,
+        retrieved_at=stored_response.retrieved_at,
     )
 
 
@@ -135,40 +135,25 @@ def run_esearch(
             response = owned_client.get(endpoint, params=params)
     else:
         response = client.get(endpoint, params=params, timeout=timeout)
-    response.raise_for_status()
-    return process_esearch_response_bytes(
+    stored_response = preserve_pubmed_source_response(
         raw_bytes=response.content,
         artifact_store=artifact_store,
         endpoint=endpoint,
         request_params=params,
+        operation=PUBMED_ESEARCH_OPERATION,
+        schema_version=PUBMED_ESEARCH_SCHEMA_VERSION,
         http_status=response.status_code,
         content_type=response.headers.get("content-type"),
     )
-
-
-def _build_source_snapshot_manifest(
-    *,
-    raw_payload_hash: str,
-    endpoint: str,
-    request_params: dict[str, str],
-    http_status: int,
-    content_type: str,
-    resolved_request_fingerprint: str,
-) -> SourceSnapshotManifest:
-    return SourceSnapshotManifest(
-        manifest_version="1",
-        schema_version=PUBMED_ESEARCH_SCHEMA_VERSION,
-        payload_hash=raw_payload_hash,
-        metadata={
-            "source_name": PUBMED_SOURCE_NAME,
-            "operation": PUBMED_ESEARCH_OPERATION,
-            "endpoint": endpoint,
-            "request_method": "GET",
-            "request_params": redacted_request_params(request_params),
-            "request_fingerprint": resolved_request_fingerprint,
-            "http_status": http_status,
-            "content_type": content_type,
-        },
+    if response.is_error:
+        raise pubmed_http_status_error(
+            operation=PUBMED_ESEARCH_OPERATION,
+            response=response,
+            stored_response=stored_response,
+        )
+    return _parse_stored_esearch_response(
+        raw_bytes=response.content,
+        stored_response=stored_response,
     )
 
 

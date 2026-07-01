@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
+from convivial_medicine.adapters.pubmed.errors import PubMedHTTPStatusError
 from convivial_medicine.adapters.pubmed.esummary import (
     PUBMED_ESUMMARY_ENDPOINT,
     build_esummary_params,
@@ -173,3 +175,40 @@ def test_run_esummary_uses_injected_httpx_client_without_live_network(tmp_path: 
     assert seen_request.url.params["tool"] == "convivial-test"
     assert seen_request.url.params["email"] == "curator@example.org"
     assert result.parsed.summaries_returned == 3
+
+
+def test_run_esummary_preserves_non_2xx_response_before_raising(tmp_path: Path) -> None:
+    raw_bytes = b"service unavailable"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=500,
+            content=raw_bytes,
+            headers={"content-type": "text/plain; charset=utf-8"},
+            request=request,
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(PubMedHTTPStatusError) as exc_info:
+        run_esummary(
+            pmids=PMIDS,
+            artifact_store=LocalArtifactStore(tmp_path),
+            settings=Settings(
+                NCBI_TOOL="convivial-test",
+                NCBI_EMAIL="curator@example.org",
+                NCBI_API_KEY="secret-api-key",
+            ),
+            client=client,
+        )
+
+    exc = exc_info.value
+    assert exc.operation == "esummary"
+    assert exc.http_status == 500
+    assert exc.content_type == "text/plain; charset=utf-8"
+    assert exc.raw_payload_hash.startswith("sha256:")
+    assert exc.raw_artifact_uri.startswith("artifact://sha256/")
+    assert exc.source_snapshot_manifest_hash.startswith("sha256:")
+    assert exc.request_metadata["params"]["api_key"] == "<redacted>"
+    assert "secret-api-key" not in json.dumps(exc.request_metadata, sort_keys=True)
+    assert LocalArtifactStore(tmp_path).read_bytes(exc.raw_payload_hash) == raw_bytes

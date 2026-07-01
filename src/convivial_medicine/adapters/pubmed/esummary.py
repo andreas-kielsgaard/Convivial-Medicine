@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import httpx
 
-from convivial_medicine.adapters.pubmed.esearch import PUBMED_SOURCE_NAME
 from convivial_medicine.adapters.pubmed.models import PubMedESummaryResult
-from convivial_medicine.adapters.pubmed.request_fingerprint import (
-    redacted_request_params,
-    request_fingerprint,
+from convivial_medicine.adapters.pubmed.source_response import (
+    PubMedStoredSourceResponse,
+    preserve_pubmed_source_response,
+    pubmed_http_status_error,
 )
 from convivial_medicine.config import Settings, get_settings
 from convivial_medicine.domain.manifests import SourceSnapshotManifest
@@ -74,27 +74,32 @@ def process_esummary_response_bytes(
     content_type: str | None,
     retrieved_at: datetime | None = None,
 ) -> PubMedESummaryAdapterResult:
-    resolved_retrieved_at = retrieved_at or datetime.now(UTC)
-    resolved_content_type = content_type or "application/octet-stream"
-    resolved_request_fingerprint = request_fingerprint(
-        method="GET",
-        endpoint=endpoint,
-        params=request_params,
-    )
-    request_metadata = {
-        "endpoint": endpoint,
-        "method": "GET",
-        "params": redacted_request_params(request_params),
-    }
-    raw_artifact = artifact_store.write_bytes(raw_bytes)
-    manifest = _build_source_snapshot_manifest(
-        raw_payload_hash=raw_artifact.artifact_hash,
+    stored_response = preserve_pubmed_source_response(
+        raw_bytes=raw_bytes,
+        artifact_store=artifact_store,
         endpoint=endpoint,
         request_params=request_params,
+        operation=PUBMED_ESUMMARY_OPERATION,
+        schema_version=PUBMED_ESUMMARY_SCHEMA_VERSION,
         http_status=http_status,
-        content_type=resolved_content_type,
-        resolved_request_fingerprint=resolved_request_fingerprint,
+        content_type=content_type,
+        retrieved_at=retrieved_at,
     )
+    return _parse_stored_esummary_response(
+        raw_bytes=raw_bytes,
+        requested_pmids=requested_pmids,
+        stored_response=stored_response,
+    )
+
+
+def _parse_stored_esummary_response(
+    *,
+    raw_bytes: bytes,
+    requested_pmids: tuple[str, ...],
+    stored_response: PubMedStoredSourceResponse,
+) -> PubMedESummaryAdapterResult:
+    manifest = stored_response.source_snapshot_manifest
+    raw_artifact = stored_response.raw_artifact
     provider_payload = _parse_json_bytes(raw_bytes)
     parsed = PubMedESummaryResult.from_provider_payload(
         provider_payload,
@@ -111,14 +116,14 @@ def process_esummary_response_bytes(
         raw_artifact=raw_artifact,
         source_snapshot_manifest=manifest,
         parsed=parsed,
-        endpoint=endpoint,
-        request_fingerprint=resolved_request_fingerprint,
-        request_metadata=request_metadata,
-        http_status=http_status,
-        content_type=resolved_content_type,
+        endpoint=stored_response.endpoint,
+        request_fingerprint=stored_response.request_fingerprint,
+        request_metadata=stored_response.request_metadata,
+        http_status=stored_response.http_status,
+        content_type=stored_response.content_type,
         provider_payload=provider_payload,
         response_metadata=response_metadata,
-        retrieved_at=resolved_retrieved_at,
+        retrieved_at=stored_response.retrieved_at,
     )
 
 
@@ -139,41 +144,26 @@ def run_esummary(
             response = owned_client.get(endpoint, params=params)
     else:
         response = client.get(endpoint, params=params, timeout=timeout)
-    response.raise_for_status()
-    return process_esummary_response_bytes(
+    stored_response = preserve_pubmed_source_response(
         raw_bytes=response.content,
         artifact_store=artifact_store,
         endpoint=endpoint,
         request_params=params,
-        requested_pmids=normalized_pmids,
+        operation=PUBMED_ESUMMARY_OPERATION,
+        schema_version=PUBMED_ESUMMARY_SCHEMA_VERSION,
         http_status=response.status_code,
         content_type=response.headers.get("content-type"),
     )
-
-
-def _build_source_snapshot_manifest(
-    *,
-    raw_payload_hash: str,
-    endpoint: str,
-    request_params: dict[str, str],
-    http_status: int,
-    content_type: str,
-    resolved_request_fingerprint: str,
-) -> SourceSnapshotManifest:
-    return SourceSnapshotManifest(
-        manifest_version="1",
-        schema_version=PUBMED_ESUMMARY_SCHEMA_VERSION,
-        payload_hash=raw_payload_hash,
-        metadata={
-            "source_name": PUBMED_SOURCE_NAME,
-            "operation": PUBMED_ESUMMARY_OPERATION,
-            "endpoint": endpoint,
-            "request_method": "GET",
-            "request_params": redacted_request_params(request_params),
-            "request_fingerprint": resolved_request_fingerprint,
-            "http_status": http_status,
-            "content_type": content_type,
-        },
+    if response.is_error:
+        raise pubmed_http_status_error(
+            operation=PUBMED_ESUMMARY_OPERATION,
+            response=response,
+            stored_response=stored_response,
+        )
+    return _parse_stored_esummary_response(
+        raw_bytes=response.content,
+        requested_pmids=normalized_pmids,
+        stored_response=stored_response,
     )
 
 
