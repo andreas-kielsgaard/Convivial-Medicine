@@ -15,6 +15,7 @@ FIXTURE_PATH = Path("tests/fixtures/pubmed/esearch_vitamin_d_ms_seed.json")
 ESUMMARY_FIXTURE_PATH = Path("tests/fixtures/pubmed/esummary_vitamin_d_ms_seed.json")
 EFETCH_FIXTURE_PATH = Path("tests/fixtures/pubmed/efetch_vitamin_d_ms_seed.xml")
 PMC_IDCONV_FIXTURE_PATH = Path("tests/fixtures/pmc/idconv_vitamin_d_ms_seed.json")
+PMC_BIOC_FIXTURE_PATH = Path("tests/fixtures/pmc/bioc_vitamin_d_ms_seed.json")
 
 
 def test_root_help() -> None:
@@ -147,6 +148,40 @@ def test_pubmed_records_fixture_mode_prints_summary(tmp_path) -> None:
     assert result.exit_code == 0
     assert "records_returned: 3" in result.output
     assert "pmids_returned: 3" in result.output
+    assert "raw_payload_hash: sha256:" in result.output
+    assert "manifest_hash: sha256:" in result.output
+    assert "db_persisted: False" in result.output
+    assert any((tmp_path / "sha256").glob("*/*"))
+
+
+def test_pmc_bioc_default_does_not_call_network() -> None:
+    result = runner.invoke(app, ["fetch", "pmc-bioc"])
+
+    assert result.exit_code == 0
+    assert "No PMC BioC fetch run" in result.output
+    assert "--fixture PATH" in result.output
+    assert "--live" in result.output
+
+
+def test_pmc_bioc_fixture_mode_prints_summary(tmp_path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "fetch",
+            "pmc-bioc",
+            "--id",
+            "PMC1111111",
+            "--fixture",
+            str(PMC_BIOC_FIXTURE_PATH),
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "document_detected: True" in result.output
+    assert "document_count: 1" in result.output
+    assert "passage_count: 3" in result.output
     assert "raw_payload_hash: sha256:" in result.output
     assert "manifest_hash: sha256:" in result.output
     assert "db_persisted: False" in result.output

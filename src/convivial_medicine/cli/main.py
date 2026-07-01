@@ -6,6 +6,12 @@ from typing import Annotated, NoReturn
 import typer
 
 from convivial_medicine import __version__
+from convivial_medicine.adapters.pmc.bioc import (
+    PmcBioCAdapterResult,
+    build_bioc_request,
+    process_bioc_response_bytes,
+    run_bioc,
+)
 from convivial_medicine.adapters.pmc.errors import PmcHTTPStatusError
 from convivial_medicine.adapters.pmc.idconv import (
     PMC_IDCONV_ENDPOINT,
@@ -14,7 +20,10 @@ from convivial_medicine.adapters.pmc.idconv import (
     process_idconv_response_bytes,
     run_idconv,
 )
-from convivial_medicine.adapters.pmc.persistence import persist_pmc_idconv_result
+from convivial_medicine.adapters.pmc.persistence import (
+    persist_pmc_bioc_result,
+    persist_pmc_idconv_result,
+)
 from convivial_medicine.adapters.pubmed.efetch import (
     PUBMED_EFETCH_ENDPOINT,
     PubMedEFetchAdapterResult,
@@ -516,9 +525,135 @@ def _exit_pubmed_http_status_error(exc: PubMedHTTPStatusError) -> NoReturn:
 
 
 @fetch_app.command("pmc-bioc")
-def fetch_pmc_bioc() -> None:
+def fetch_pmc_bioc(
+    identifier: Annotated[
+        str | None,
+        typer.Option("--id", help="Single PubMed ID or PMC ID to fetch through PMC BioC."),
+    ] = None,
+    id_type: Annotated[
+        str | None,
+        typer.Option(
+            "--id-type",
+            help="Identifier type. Use pmid or pmcid; omitted values are inferred.",
+        ),
+    ] = None,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make a live PMC BioC network call."),
+    ] = False,
+    fixture: Annotated[
+        Path | None,
+        typer.Option(
+            "--fixture",
+            help="Read saved PMC BioC response bytes instead of calling the network.",
+        ),
+    ] = None,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist source snapshot and snapshot manifest rows to Postgres.",
+        ),
+    ] = False,
+) -> None:
     """Fetch PMC BioC full text where available."""
-    _not_implemented("corpus fetch pmc-bioc")
+    if live and fixture is not None:
+        typer.echo("Use either --live or --fixture, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    if not live and fixture is None:
+        typer.echo(
+            "No PMC BioC fetch run. Pass --id ID with --fixture PATH "
+            "to replay bytes or --live to call PMC BioC."
+        )
+        return
+
+    if identifier is None or not identifier.strip():
+        typer.echo("--id must include one PMID or PMCID.", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        request = build_bioc_request(identifier, id_type=id_type)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    settings = get_settings()
+    artifact_store = LocalArtifactStore(artifact_root)
+
+    if persist_db:
+        try:
+            check_database_connection(settings)
+        except DatabaseConnectionError as exc:
+            typer.echo(f"database_persistence: failed ({exc})", err=True)
+            raise typer.Exit(code=1) from exc
+
+    if fixture is not None:
+        result = process_bioc_response_bytes(
+            raw_bytes=fixture.read_bytes(),
+            artifact_store=artifact_store,
+            request=request,
+            http_status=200,
+            content_type="application/json",
+        )
+        _persist_pmc_bioc_if_requested(
+            persist_db=persist_db,
+            result=result,
+            settings=settings,
+        )
+        _print_pmc_bioc_summary(result, db_persisted=persist_db)
+        return
+
+    try:
+        result = run_bioc(
+            identifier=request.requested_id,
+            id_type=request.requested_id_type,
+            artifact_store=artifact_store,
+        )
+    except PmcHTTPStatusError as exc:
+        _exit_pmc_http_status_error(exc)
+    _persist_pmc_bioc_if_requested(
+        persist_db=persist_db,
+        result=result,
+        settings=settings,
+    )
+    _print_pmc_bioc_summary(result, db_persisted=persist_db)
+
+
+def _persist_pmc_bioc_if_requested(
+    *,
+    persist_db: bool,
+    result: PmcBioCAdapterResult,
+    settings: Settings,
+) -> None:
+    if not persist_db:
+        return
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory.begin() as session:
+            persist_pmc_bioc_result(session, result=result)
+    finally:
+        engine.dispose()
+
+
+def _print_pmc_bioc_summary(
+    result: PmcBioCAdapterResult,
+    *,
+    db_persisted: bool,
+) -> None:
+    parsed = result.parsed
+    typer.echo(f"document_detected: {parsed.document_detected}")
+    typer.echo(f"document_count: {parsed.document_count}")
+    typer.echo(f"passage_count: {parsed.passage_count}")
+    typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
+    typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
+    typer.echo(f"db_persisted: {db_persisted}")
 
 
 @enrich_app.command("pmc-idconv")

@@ -40,6 +40,7 @@ def preserve_pmc_source_response(
     http_status: int,
     content_type: str | None,
     retrieved_at: datetime | None = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> PmcStoredSourceResponse:
     resolved_retrieved_at = retrieved_at or datetime.now(UTC)
     resolved_content_type = content_type or "application/octet-stream"
@@ -54,20 +55,23 @@ def preserve_pmc_source_response(
         "params": redacted_request_params(request_params),
     }
     raw_artifact = artifact_store.write_bytes(raw_bytes)
+    metadata = {
+        "source_name": PMC_SOURCE_NAME,
+        "operation": operation,
+        "endpoint": endpoint,
+        "request_method": "GET",
+        "request_params": redacted_request_params(request_params),
+        "request_fingerprint": resolved_request_fingerprint,
+        "http_status": http_status,
+        "content_type": resolved_content_type,
+    }
+    if extra_metadata is not None:
+        metadata.update(extra_metadata)
     manifest = SourceSnapshotManifest(
         manifest_version="1",
         schema_version=schema_version,
         payload_hash=raw_artifact.artifact_hash,
-        metadata={
-            "source_name": PMC_SOURCE_NAME,
-            "operation": operation,
-            "endpoint": endpoint,
-            "request_method": "GET",
-            "request_params": redacted_request_params(request_params),
-            "request_fingerprint": resolved_request_fingerprint,
-            "http_status": http_status,
-            "content_type": resolved_content_type,
-        },
+        metadata=metadata,
     )
     return PmcStoredSourceResponse(
         raw_artifact=raw_artifact,

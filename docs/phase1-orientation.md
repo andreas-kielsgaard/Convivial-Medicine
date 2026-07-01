@@ -25,6 +25,12 @@ PMID batch, preserves the raw JSON response before parsing, and treats
 not-returned PMIDs as normal missing/not-in-PMC results. A returned PMCID does
 not imply legal reuse permission or fetch full text.
 
+PMC BioC retrieves approved BioC JSON source payloads for a single known PMID or
+PMCID where available. It preserves raw response bytes before parsing and only
+records minimal document/passages detection in this branch. BioC availability
+does not imply unrestricted legal reuse, and PMC HTML scraping remains outside
+the boundary.
+
 `corpus query pubmed` remains database-free by default. Passing `--persist-db`
 explicitly attempts a Postgres connection and stores the query manifest, raw
 source snapshot metadata, and source snapshot manifest rows for fixture or live
@@ -42,18 +48,22 @@ snapshots. It persists source snapshot metadata and manifests only when
 stores source snapshot metadata and manifests only when `--persist-db` is
 passed, and it does not create normalized works or full-text assets.
 
+`corpus fetch pmc-bioc` follows the same boundary for BioC source snapshots. It
+persists source snapshot metadata and manifests only when `--persist-db` is
+passed, and it does not create works, embeddings, or full-text assets.
+
 ## Source Order
 
 1. PubMed defines corpus membership and PubMed-side record snapshots.
 2. PMC ID Converter determines PMC identifier and availability eligibility for
    known PMIDs.
-3. PMC BioC may later retrieve lawful full-text content where available through
-   approved services.
+3. PMC BioC retrieves approved BioC source payloads for known IDs where
+   available through the API.
 4. OpenAlex singleton lookups enrich already identified works.
 
 ## Deferred Work
 
-- PMC BioC/full-text retrieval adapters.
+- Broader PMC full-text ingestion and legal reuse interpretation.
 - Live PMC and OpenAlex adapters.
 - Source adapter implementations beyond PubMed ESearch/ESummary/EFetch and the schema v1
   persistence boundary.

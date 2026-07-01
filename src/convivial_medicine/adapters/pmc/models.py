@@ -90,6 +90,78 @@ def validate_idconv_provider_payload(payload: dict[str, Any]) -> None:
     PmcIdConverterProviderPayload.model_validate(payload)
 
 
+class PmcBioCDocumentSummary(BaseModel):
+    document_id: str | None = None
+    passage_count: int
+    section_labels: tuple[str, ...] = Field(default_factory=tuple)
+
+
+class PmcBioCResult(BaseModel):
+    requested_id: str
+    requested_id_type: str
+    collection_source: str | None = None
+    document_detected: bool
+    document_count: int
+    passage_count: int
+    document_ids: tuple[str, ...] = Field(default_factory=tuple)
+    section_labels: tuple[str, ...] = Field(default_factory=tuple)
+    documents: tuple[PmcBioCDocumentSummary, ...] = Field(default_factory=tuple)
+    source_snapshot_manifest_hash: str
+    raw_payload_hash: str
+
+    @classmethod
+    def from_provider_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        requested_id: str,
+        requested_id_type: str,
+        source_snapshot_manifest_hash: str,
+        raw_payload_hash: str,
+    ) -> PmcBioCResult:
+        documents_payload = payload.get("documents", [])
+        if not isinstance(documents_payload, list):
+            raise ValueError("PMC BioC response documents must be a list")
+
+        documents = tuple(
+            _bioc_document_summary_from_payload(item)
+            for item in documents_payload
+            if isinstance(item, dict)
+        )
+        document_ids = tuple(
+            document.document_id for document in documents if document.document_id is not None
+        )
+        section_labels = tuple(
+            sorted({label for document in documents for label in document.section_labels})
+        )
+        passage_count = sum(document.passage_count for document in documents)
+
+        return cls(
+            requested_id=requested_id,
+            requested_id_type=requested_id_type,
+            collection_source=_optional_string(payload.get("source")),
+            document_detected=bool(documents),
+            document_count=len(documents),
+            passage_count=passage_count,
+            document_ids=document_ids,
+            section_labels=section_labels,
+            documents=documents,
+            source_snapshot_manifest_hash=source_snapshot_manifest_hash,
+            raw_payload_hash=raw_payload_hash,
+        )
+
+
+class PmcBioCProviderPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    source: str | None = None
+    documents: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def validate_bioc_provider_payload(payload: dict[str, Any]) -> None:
+    PmcBioCProviderPayload.model_validate(payload)
+
+
 def _record_from_payload(payload: dict[str, Any]) -> PmcIdConverterRecord:
     pmid = _optional_string(payload.get("pmid"))
     requested_id = _optional_string(payload.get("requested-id")) or pmid
@@ -137,3 +209,36 @@ def _error_message_from_payload(payload: dict[str, Any]) -> str | None:
         if value is not None:
             return value
     return None
+
+
+def _bioc_document_summary_from_payload(payload: dict[str, Any]) -> PmcBioCDocumentSummary:
+    passages_payload = payload.get("passages", [])
+    if not isinstance(passages_payload, list):
+        passages_payload = []
+    section_labels = tuple(
+        sorted(
+            {
+                label
+                for item in passages_payload
+                if isinstance(item, dict)
+                for label in _section_labels_from_bioc_passage(item)
+            }
+        )
+    )
+    return PmcBioCDocumentSummary(
+        document_id=_optional_string(payload.get("id")),
+        passage_count=sum(1 for item in passages_payload if isinstance(item, dict)),
+        section_labels=section_labels,
+    )
+
+
+def _section_labels_from_bioc_passage(payload: dict[str, Any]) -> tuple[str, ...]:
+    infons = payload.get("infons")
+    if not isinstance(infons, dict):
+        return ()
+    labels: list[str] = []
+    for key in ("section_type", "type"):
+        value = _optional_string(infons.get(key))
+        if value is not None:
+            labels.append(value)
+    return tuple(labels)
