@@ -23,12 +23,13 @@ BioC payload through the API. Not all PMC articles are available through BioC,
 and BioC availability still does not imply unrestricted legal reuse. Raw BioC
 responses are stored before parsing. PMC HTML must not be scraped.
 
-OpenAlex is singleton enrichment only. Later branches may look up one known work
-at a time to enrich already selected corpus records. OpenAlex must not define
-membership for the Phase One seed corpus.
+OpenAlex is singleton enrichment only. It may look up one known work at a time
+by DOI, PMID, or OpenAlex work ID to enrich already selected corpus records.
+OpenAlex must not define membership for the Phase One seed corpus.
 
-Later OpenAlex adapter work must store raw singleton lookup bytes before parsing
-enrichment fields.
+OpenAlex raw singleton lookup bytes are stored before parsing enrichment fields.
+OpenAlex does not search, bulk enrich, normalize works, or orchestrate builds in
+this phase.
 
 Crossref, Unpaywall, PubTator, and Semantic Scholar are outside Phase One branch
 work unless a later prompt explicitly changes that boundary.

@@ -16,6 +16,7 @@ ESUMMARY_FIXTURE_PATH = Path("tests/fixtures/pubmed/esummary_vitamin_d_ms_seed.j
 EFETCH_FIXTURE_PATH = Path("tests/fixtures/pubmed/efetch_vitamin_d_ms_seed.xml")
 PMC_IDCONV_FIXTURE_PATH = Path("tests/fixtures/pmc/idconv_vitamin_d_ms_seed.json")
 PMC_BIOC_FIXTURE_PATH = Path("tests/fixtures/pmc/bioc_vitamin_d_ms_seed.json")
+OPENALEX_FIXTURE_PATH = Path("tests/fixtures/openalex/work_vitamin_d_ms_seed.json")
 
 
 def test_root_help() -> None:
@@ -222,6 +223,80 @@ def test_pmc_idconv_fixture_mode_prints_summary(tmp_path) -> None:
     assert any((tmp_path / "sha256").glob("*/*"))
 
 
+def test_openalex_default_does_not_call_network() -> None:
+    result = runner.invoke(app, ["enrich", "openalex"])
+
+    assert result.exit_code == 0
+    assert "No OpenAlex enrichment run" in result.output
+    assert "--fixture PATH" in result.output
+    assert "--live" in result.output
+
+
+def test_openalex_requires_exactly_one_identifier_for_fixture_mode() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "enrich",
+            "openalex",
+            "--doi",
+            "10.1000/vitd-ms.2021.001",
+            "--pmid",
+            "11111111",
+            "--fixture",
+            str(OPENALEX_FIXTURE_PATH),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Pass exactly one of --doi, --pmid, or --openalex-id" in result.output
+
+
+def test_openalex_fixture_mode_prints_summary(tmp_path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "enrich",
+            "openalex",
+            "--pmid",
+            "11111111",
+            "--fixture",
+            str(OPENALEX_FIXTURE_PATH),
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "openalex_id: https://openalex.org/W1111111111" in result.output
+    assert "doi: https://doi.org/10.1000/vitd-ms.2021.001" in result.output
+    assert "pmid: 11111111" in result.output
+    assert "publication_year: 2021" in result.output
+    assert "cited_by_count: 42" in result.output
+    assert "is_retracted: False" in result.output
+    assert "raw_payload_hash: sha256:" in result.output
+    assert "manifest_hash: sha256:" in result.output
+    assert "db_persisted: False" in result.output
+    assert any((tmp_path / "sha256").glob("*/*"))
+
+
+def test_openalex_live_requires_api_key(tmp_path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "enrich",
+            "openalex",
+            "--pmid",
+            "11111111",
+            "--live",
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "OPENALEX_API_KEY is required" in result.output
+
+
 def test_pubmed_query_live_http_error_exits_nonzero_with_artifact_details(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -301,6 +376,51 @@ def test_pmc_idconv_live_http_error_exits_nonzero_with_artifact_details(
     get_settings.cache_clear()
     assert result.exit_code == 1
     assert "PMC idconv failed with HTTP 503" in result.output
+    assert "raw_payload_hash=sha256:" in result.output
+    assert "manifest_hash=sha256:" in result.output
+    assert "raw_artifact_uri=artifact://sha256/" in result.output
+
+
+def test_openalex_live_http_error_exits_nonzero_with_artifact_details(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from convivial_medicine.adapters.openalex.errors import OpenAlexHTTPStatusError
+
+    def fail_openalex(**_: object) -> object:
+        raise OpenAlexHTTPStatusError(
+            operation="work",
+            endpoint="https://api.openalex.org/works/W0000000000",
+            http_status=404,
+            content_type="application/json",
+            raw_payload_hash="sha256:" + "a" * 64,
+            raw_artifact_uri="artifact://sha256/aa/" + "a" * 64,
+            source_snapshot_manifest_hash="sha256:" + "b" * 64,
+            request_fingerprint="sha256:" + "c" * 64,
+            request_metadata={"params": {"api_key": "<redacted>"}},
+            original_http_message="Not Found",
+        )
+
+    monkeypatch.setenv("OPENALEX_API_KEY", "secret-test-key")
+    get_settings.cache_clear()
+    monkeypatch.setattr("convivial_medicine.cli.main.run_openalex_work", fail_openalex)
+
+    result = runner.invoke(
+        app,
+        [
+            "enrich",
+            "openalex",
+            "--openalex-id",
+            "W0000000000",
+            "--live",
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    get_settings.cache_clear()
+    assert result.exit_code == 1
+    assert "OpenAlex work failed with HTTP 404" in result.output
     assert "raw_payload_hash=sha256:" in result.output
     assert "manifest_hash=sha256:" in result.output
     assert "raw_artifact_uri=artifact://sha256/" in result.output

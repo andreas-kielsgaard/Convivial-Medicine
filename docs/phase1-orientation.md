@@ -52,6 +52,11 @@ passed, and it does not create normalized works or full-text assets.
 persists source snapshot metadata and manifests only when `--persist-db` is
 passed, and it does not create works, embeddings, or full-text assets.
 
+`corpus enrich openalex` performs one singleton work lookup for a known DOI,
+PMID, or OpenAlex work ID. It preserves raw response bytes before parsing a
+minimal enrichment model, persists source snapshot metadata and manifests only
+when `--persist-db` is passed, and does not define corpus membership.
+
 ## Source Order
 
 1. PubMed defines corpus membership and PubMed-side record snapshots.
@@ -64,9 +69,9 @@ passed, and it does not create works, embeddings, or full-text assets.
 ## Deferred Work
 
 - Broader PMC full-text ingestion and legal reuse interpretation.
-- Live PMC and OpenAlex adapters.
-- Source adapter implementations beyond PubMed ESearch/ESummary/EFetch and the schema v1
-  persistence boundary.
+- Source adapter implementations beyond the current PubMed, PMC, and OpenAlex
+  singleton persistence boundary.
+- OpenAlex search, bulk enrichment, work normalization, and build orchestration.
 - Task orchestration behavior beyond the initial build run tables.
 - Source retry, rate-limit, and provenance policies.
 - External artifact persistence beyond deterministic local primitives.

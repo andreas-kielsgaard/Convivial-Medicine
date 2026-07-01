@@ -1,0 +1,35 @@
+{
+  "id": "https://openalex.org/W1111111111",
+  "doi": "https://doi.org/10.1000/vitd-ms.2021.001",
+  "ids": {
+    "openalex": "https://openalex.org/W1111111111",
+    "doi": "https://doi.org/10.1000/vitd-ms.2021.001",
+    "pmid": "https://pubmed.ncbi.nlm.nih.gov/11111111"
+  },
+  "title": "Vitamin D status and multiple sclerosis risk.",
+  "display_name": "Vitamin D status and multiple sclerosis risk.",
+  "publication_year": 2021,
+  "publication_date": "2021-04-15",
+  "type": "article",
+  "cited_by_count": 42,
+  "is_retracted": false,
+  "open_access": {
+    "is_oa": true,
+    "oa_status": "gold",
+    "oa_url": "https://example.org/vitd-ms/fulltext",
+    "any_repository_has_fulltext": true
+  },
+  "primary_location": {
+    "is_oa": true,
+    "landing_page_url": "https://example.org/vitd-ms",
+    "pdf_url": "https://example.org/vitd-ms.pdf",
+    "license": "cc-by",
+    "version": "publishedVersion",
+    "source": {
+      "id": "https://openalex.org/S123456789",
+      "display_name": "Fixture Journal of Neurology",
+      "issn_l": "1234-5678",
+      "type": "journal"
+    }
+  }
+}
