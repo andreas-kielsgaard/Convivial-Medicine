@@ -41,6 +41,7 @@ def test_nested_command_help() -> None:
     commands = [
         ["query", "pubmed", "--help"],
         ["build", "seed", "--help"],
+        ["build", "normalize-works", "--help"],
         ["fetch", "pubmed-summary", "--help"],
         ["fetch", "pubmed-records", "--help"],
         ["enrich", "pmc-idconv", "--help"],
@@ -167,6 +168,41 @@ def test_seed_build_live_requires_opt_in_credentials(
     get_settings.cache_clear()
     assert result.exit_code == 1
     assert "NCBI_EMAIL is required for --live seed builds" in result.output
+
+
+def test_normalize_works_requires_database_persistence() -> None:
+    result = runner.invoke(app, ["build", "normalize-works"])
+
+    assert result.exit_code == 2
+    assert "--persist-db is required for corpus build normalize-works" in result.output
+
+
+def test_normalize_works_fails_if_build_validation_fails(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fail_db_check(*_: object) -> object:
+        raise AssertionError("database check should not run before validation passes")
+
+    monkeypatch.setattr("convivial_medicine.cli.main.check_database_connection", fail_db_check)
+
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "normalize-works",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(tmp_path / "missing-artifacts"),
+            "--persist-db",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Build validation failed; normalization skipped." in result.output
+    assert "status: failed" in result.output
+    assert "artifact root is missing" in result.output
 
 
 def test_validate_build_passes_for_completed_fixture_seed(tmp_path: Path) -> None:
