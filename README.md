@@ -22,6 +22,12 @@ PubMed ESearch is the first adapter boundary: it defines corpus membership only.
 Raw ESearch JSON bytes are stored before parsing. PubMed ESummary and EFetch are
 still deferred.
 
+ESearch can optionally persist query manifest, source snapshot, and snapshot
+manifest records to Postgres with `corpus query pubmed --persist-db`. Database
+persistence is explicit and off by default; fixture and live ESearch runs still
+write local content-addressed artifacts without requiring a database unless that
+flag is passed.
+
 ## Development
 
 Install dependencies:
@@ -44,6 +50,7 @@ Inspect the CLI:
 ```powershell
 uv run corpus --help
 uv run corpus doctor
+uv run corpus query pubmed --fixture tests/fixtures/pubmed/esearch_vitamin_d_ms_seed.json
 ```
 
 Run the API locally:

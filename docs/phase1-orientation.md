@@ -19,6 +19,11 @@ PubMed ESearch is now the first adapter. It defines membership for the seed
 corpus and preserves raw response bytes before parsing. PubMed ESummary and
 EFetch remain deferred.
 
+`corpus query pubmed` remains database-free by default. Passing `--persist-db`
+explicitly attempts a Postgres connection and stores the query manifest, raw
+source snapshot metadata, and source snapshot manifest rows for fixture or live
+ESearch runs.
+
 ## Source Order
 
 1. PubMed defines corpus membership.
