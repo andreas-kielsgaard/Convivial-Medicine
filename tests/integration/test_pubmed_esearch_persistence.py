@@ -9,6 +9,11 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 from typer.testing import CliRunner
 
+from convivial_medicine.adapters.pubmed.efetch import (
+    PUBMED_EFETCH_ENDPOINT,
+    build_efetch_params,
+    process_efetch_response_bytes,
+)
 from convivial_medicine.adapters.pubmed.esearch import (
     PUBMED_ESEARCH_ENDPOINT,
     build_esearch_params,
@@ -33,7 +38,8 @@ pytestmark = pytest.mark.skipif(
 SEED_MANIFEST_PATH = Path("manifests/vitamin_D_ms_seed_v1.json")
 FIXTURE_PATH = Path("tests/fixtures/pubmed/esearch_vitamin_d_ms_seed.json")
 ESUMMARY_FIXTURE_PATH = Path("tests/fixtures/pubmed/esummary_vitamin_d_ms_seed.json")
-ESUMMARY_PMIDS = ("11111111", "22222222", "33333333")
+EFETCH_FIXTURE_PATH = Path("tests/fixtures/pubmed/efetch_vitamin_d_ms_seed.xml")
+SEED_PMIDS = ("11111111", "22222222", "33333333")
 
 
 def test_fixture_mode_esearch_persistence_creates_manifest_and_snapshot_rows(
@@ -96,6 +102,63 @@ def test_fixture_mode_esearch_persistence_creates_manifest_and_snapshot_rows(
     assert snapshot_manifest_count == 1
 
 
+def test_fixture_mode_efetch_persistence_creates_source_and_manifest_rows(
+    tmp_path: Path,
+) -> None:
+    get_settings.cache_clear()
+    command.upgrade(Config("alembic.ini"), "head")
+
+    expected_result = process_efetch_response_bytes(
+        raw_bytes=EFETCH_FIXTURE_PATH.read_bytes(),
+        artifact_store=LocalArtifactStore(tmp_path / "expected-efetch-artifacts"),
+        endpoint=PUBMED_EFETCH_ENDPOINT,
+        request_params=build_efetch_params(SEED_PMIDS),
+        requested_pmids=SEED_PMIDS,
+        http_status=200,
+        content_type="application/xml",
+    )
+    raw_hash = sha256_uri(EFETCH_FIXTURE_PATH.read_bytes())
+    snapshot_manifest_hash = expected_result.source_snapshot_manifest.manifest_hash()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "fetch",
+            "pubmed-records",
+            "--pmids",
+            ",".join(SEED_PMIDS),
+            "--fixture",
+            str(EFETCH_FIXTURE_PATH),
+            "--artifact-root",
+            str(tmp_path / "cli-efetch-artifacts"),
+            "--persist-db",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "db_persisted: True" in result.output
+
+    engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            source_count = connection.execute(
+                text("select count(*) from source_snapshots where snapshot_hash = :snapshot_hash"),
+                {"snapshot_hash": raw_hash},
+            ).scalar_one()
+            snapshot_manifest_count = connection.execute(
+                text(
+                    "select count(*) from snapshot_manifests where manifest_hash = :manifest_hash"
+                ),
+                {"manifest_hash": snapshot_manifest_hash},
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+    assert source_count == 1
+    assert snapshot_manifest_count == 1
+
+
 def test_fixture_mode_esummary_persistence_creates_source_and_manifest_rows(
     tmp_path: Path,
 ) -> None:
@@ -106,8 +169,8 @@ def test_fixture_mode_esummary_persistence_creates_source_and_manifest_rows(
         raw_bytes=ESUMMARY_FIXTURE_PATH.read_bytes(),
         artifact_store=LocalArtifactStore(tmp_path / "expected-esummary-artifacts"),
         endpoint=PUBMED_ESUMMARY_ENDPOINT,
-        request_params=build_esummary_params(ESUMMARY_PMIDS),
-        requested_pmids=ESUMMARY_PMIDS,
+        request_params=build_esummary_params(SEED_PMIDS),
+        requested_pmids=SEED_PMIDS,
         http_status=200,
         content_type="application/json",
     )
@@ -121,7 +184,7 @@ def test_fixture_mode_esummary_persistence_creates_source_and_manifest_rows(
             "fetch",
             "pubmed-summary",
             "--pmids",
-            ",".join(ESUMMARY_PMIDS),
+            ",".join(SEED_PMIDS),
             "--fixture",
             str(ESUMMARY_FIXTURE_PATH),
             "--artifact-root",

@@ -4,6 +4,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from convivial_medicine.adapters.pubmed.efetch import (
+    PUBMED_EFETCH_OPERATION,
+    PubMedEFetchAdapterResult,
+)
 from convivial_medicine.adapters.pubmed.esearch import (
     PUBMED_ESEARCH_OPERATION,
     PUBMED_SOURCE_NAME,
@@ -51,6 +55,15 @@ def source_snapshot_db_values_from_pubmed_esearch(
     )
 
 
+def source_snapshot_db_values_from_pubmed_efetch(
+    result: PubMedEFetchAdapterResult,
+) -> dict[str, Any]:
+    return source_snapshot_db_values_from_pubmed_result(
+        result=result,
+        operation=PUBMED_EFETCH_OPERATION,
+    )
+
+
 def source_snapshot_db_values_from_pubmed_esummary(
     result: PubMedESummaryAdapterResult,
 ) -> dict[str, Any]:
@@ -77,4 +90,13 @@ def persist_pubmed_esummary_result(
     result: PubMedESummaryAdapterResult,
 ) -> None:
     persist_source_snapshot(session, source_snapshot_db_values_from_pubmed_esummary(result))
+    persist_snapshot_manifest(session, result.source_snapshot_manifest)
+
+
+def persist_pubmed_efetch_result(
+    session: Session,
+    *,
+    result: PubMedEFetchAdapterResult,
+) -> None:
+    persist_source_snapshot(session, source_snapshot_db_values_from_pubmed_efetch(result))
     persist_snapshot_manifest(session, result.source_snapshot_manifest)

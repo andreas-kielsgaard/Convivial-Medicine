@@ -6,6 +6,13 @@ from typing import Annotated
 import typer
 
 from convivial_medicine import __version__
+from convivial_medicine.adapters.pubmed.efetch import (
+    PUBMED_EFETCH_ENDPOINT,
+    PubMedEFetchAdapterResult,
+    build_efetch_params,
+    process_efetch_response_bytes,
+    run_efetch,
+)
 from convivial_medicine.adapters.pubmed.esearch import (
     PUBMED_ESEARCH_ENDPOINT,
     PubMedESearchAdapterResult,
@@ -21,6 +28,7 @@ from convivial_medicine.adapters.pubmed.esummary import (
     run_esummary,
 )
 from convivial_medicine.adapters.pubmed.persistence import (
+    persist_pubmed_efetch_result,
     persist_pubmed_esearch_result,
     persist_pubmed_esummary_result,
 )
@@ -353,9 +361,125 @@ def _print_pubmed_esummary_summary(
 
 
 @fetch_app.command("pubmed-records")
-def fetch_pubmed_records() -> None:
+def fetch_pubmed_records(
+    pmids: Annotated[
+        str | None,
+        typer.Option("--pmids", help="Comma-separated PubMed IDs to fetch."),
+    ] = None,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make a live PubMed EFetch network call."),
+    ] = False,
+    fixture: Annotated[
+        Path | None,
+        typer.Option(
+            "--fixture",
+            help="Read saved PubMed EFetch response bytes instead of calling the network.",
+        ),
+    ] = None,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist source snapshot and snapshot manifest rows to Postgres.",
+        ),
+    ] = False,
+) -> None:
     """Fetch PubMed record data for selected records."""
-    _not_implemented("corpus fetch pubmed-records")
+    if live and fixture is not None:
+        typer.echo("Use either --live or --fixture, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    if not live and fixture is None:
+        typer.echo(
+            "No PubMed record fetch run. Pass --pmids IDS with --fixture PATH "
+            "to replay bytes or --live to call NCBI."
+        )
+        return
+
+    requested_pmids = _parse_pmids_option(pmids)
+    if not requested_pmids:
+        typer.echo("--pmids must include at least one PMID.", err=True)
+        raise typer.Exit(code=2)
+
+    settings = get_settings()
+    artifact_store = LocalArtifactStore(artifact_root)
+
+    if persist_db:
+        try:
+            check_database_connection(settings)
+        except DatabaseConnectionError as exc:
+            typer.echo(f"database_persistence: failed ({exc})", err=True)
+            raise typer.Exit(code=1) from exc
+
+    if fixture is not None:
+        result = process_efetch_response_bytes(
+            raw_bytes=fixture.read_bytes(),
+            artifact_store=artifact_store,
+            endpoint=PUBMED_EFETCH_ENDPOINT,
+            request_params=build_efetch_params(requested_pmids),
+            requested_pmids=requested_pmids,
+            http_status=200,
+            content_type="application/xml",
+        )
+        _persist_pubmed_efetch_if_requested(
+            persist_db=persist_db,
+            result=result,
+            settings=settings,
+        )
+        _print_pubmed_efetch_summary(result, db_persisted=persist_db)
+        return
+
+    if not settings.ncbi_email:
+        typer.echo("NCBI_EMAIL is required for --live PubMed EFetch calls.", err=True)
+        raise typer.Exit(code=1)
+
+    result = run_efetch(
+        pmids=requested_pmids,
+        artifact_store=artifact_store,
+        settings=settings,
+    )
+    _persist_pubmed_efetch_if_requested(
+        persist_db=persist_db,
+        result=result,
+        settings=settings,
+    )
+    _print_pubmed_efetch_summary(result, db_persisted=persist_db)
+
+
+def _persist_pubmed_efetch_if_requested(
+    *,
+    persist_db: bool,
+    result: PubMedEFetchAdapterResult,
+    settings: Settings,
+) -> None:
+    if not persist_db:
+        return
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory.begin() as session:
+            persist_pubmed_efetch_result(session, result=result)
+    finally:
+        engine.dispose()
+
+
+def _print_pubmed_efetch_summary(
+    result: PubMedEFetchAdapterResult,
+    *,
+    db_persisted: bool,
+) -> None:
+    parsed = result.parsed
+    typer.echo(f"records_returned: {parsed.records_returned}")
+    typer.echo(f"pmids_returned: {len(parsed.returned_pmids)}")
+    typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
+    typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
+    typer.echo(f"db_persisted: {db_persisted}")
 
 
 @fetch_app.command("pmc-bioc")

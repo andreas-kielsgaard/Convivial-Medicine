@@ -19,8 +19,9 @@ Later source adapter branches must store raw source bytes before parsing them,
 then record manifests and snapshots from those immutable bytes.
 
 PubMed ESearch is the first adapter boundary: it defines corpus membership.
-PubMed ESummary retrieves PubMed-side metadata for known PMIDs. Raw ESearch and
-ESummary JSON bytes are stored before parsing. PubMed EFetch is still deferred.
+PubMed ESummary retrieves PubMed-side metadata for known PMIDs. PubMed EFetch
+retrieves known-PMID PubMed record snapshots. Raw ESearch JSON, ESummary JSON,
+and EFetch XML bytes are stored before parsing.
 
 ESearch can optionally persist query manifest, source snapshot, and snapshot
 manifest records to Postgres with `corpus query pubmed --persist-db`. Database
@@ -30,6 +31,10 @@ flag is passed.
 
 ESummary can optionally persist source snapshot and snapshot manifest records
 with `corpus fetch pubmed-summary --persist-db`; it does not create normalized
+works yet.
+
+EFetch can optionally persist source snapshot and snapshot manifest records with
+`corpus fetch pubmed-records --persist-db`; it also does not create normalized
 works yet.
 
 ## Development
@@ -56,6 +61,7 @@ uv run corpus --help
 uv run corpus doctor
 uv run corpus query pubmed --fixture tests/fixtures/pubmed/esearch_vitamin_d_ms_seed.json
 uv run corpus fetch pubmed-summary --pmids 11111111,22222222,33333333 --fixture tests/fixtures/pubmed/esummary_vitamin_d_ms_seed.json
+uv run corpus fetch pubmed-records --pmids 11111111,22222222,33333333 --fixture tests/fixtures/pubmed/efetch_vitamin_d_ms_seed.xml
 ```
 
 Run the API locally:
