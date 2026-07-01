@@ -1,0 +1,37 @@
+{
+  "status": "ok",
+  "response-date": "2026-07-01 12:00:00",
+  "request": {
+    "warnings": [],
+    "format": "json",
+    "ids": [
+      "11111111",
+      "22222222",
+      "33333333"
+    ],
+    "email": "curator@example.org",
+    "tool": "convivial-test",
+    "echo": "tool=convivial-test&email=curator%40example.org&ids=11111111,22222222,33333333&idtype=pmid&format=json",
+    "versions": "no",
+    "showaiid": "no",
+    "idtype": "pmid"
+  },
+  "records": [
+    {
+      "doi": "10.1000/vitd-ms.2021.001",
+      "pmcid": "PMC1111111",
+      "pmid": 11111111,
+      "requested-id": "11111111",
+      "live": true
+    },
+    {
+      "doi": "10.1000/vitd-ms.2022.002",
+      "mid": "NIHMS222222",
+      "pmcid": "PMC2222222",
+      "pmid": "22222222",
+      "requested-id": "22222222",
+      "live": false,
+      "release-date": "2026-12-15"
+    }
+  ]
+}

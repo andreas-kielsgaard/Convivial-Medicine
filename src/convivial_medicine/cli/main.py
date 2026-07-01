@@ -6,6 +6,15 @@ from typing import Annotated, NoReturn
 import typer
 
 from convivial_medicine import __version__
+from convivial_medicine.adapters.pmc.errors import PmcHTTPStatusError
+from convivial_medicine.adapters.pmc.idconv import (
+    PMC_IDCONV_ENDPOINT,
+    PmcIdConverterAdapterResult,
+    build_idconv_params,
+    process_idconv_response_bytes,
+    run_idconv,
+)
+from convivial_medicine.adapters.pmc.persistence import persist_pmc_idconv_result
 from convivial_medicine.adapters.pubmed.efetch import (
     PUBMED_EFETCH_ENDPOINT,
     PubMedEFetchAdapterResult,
@@ -513,9 +522,144 @@ def fetch_pmc_bioc() -> None:
 
 
 @enrich_app.command("pmc-idconv")
-def enrich_pmc_idconv() -> None:
+def enrich_pmc_idconv(
+    pmids: Annotated[
+        str | None,
+        typer.Option("--pmids", help="Comma-separated PubMed IDs to convert."),
+    ] = None,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make a live PMC ID Converter network call."),
+    ] = False,
+    fixture: Annotated[
+        Path | None,
+        typer.Option(
+            "--fixture",
+            help="Read saved PMC ID Converter response bytes instead of calling the network.",
+        ),
+    ] = None,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist source snapshot and snapshot manifest rows to Postgres.",
+        ),
+    ] = False,
+) -> None:
     """Convert identifiers through PMC ID Converter."""
-    _not_implemented("corpus enrich pmc-idconv")
+    if live and fixture is not None:
+        typer.echo("Use either --live or --fixture, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    if not live and fixture is None:
+        typer.echo(
+            "No PMC ID Converter enrichment run. Pass --pmids IDS with --fixture PATH "
+            "to replay bytes or --live to call NCBI."
+        )
+        return
+
+    requested_pmids = _parse_pmids_option(pmids)
+    if not requested_pmids:
+        typer.echo("--pmids must include at least one PMID.", err=True)
+        raise typer.Exit(code=2)
+
+    settings = get_settings()
+    artifact_store = LocalArtifactStore(artifact_root)
+
+    if persist_db:
+        try:
+            check_database_connection(settings)
+        except DatabaseConnectionError as exc:
+            typer.echo(f"database_persistence: failed ({exc})", err=True)
+            raise typer.Exit(code=1) from exc
+
+    if fixture is not None:
+        result = process_idconv_response_bytes(
+            raw_bytes=fixture.read_bytes(),
+            artifact_store=artifact_store,
+            endpoint=PMC_IDCONV_ENDPOINT,
+            request_params=build_idconv_params(requested_pmids),
+            requested_pmids=requested_pmids,
+            http_status=200,
+            content_type="application/json",
+        )
+        _persist_pmc_idconv_if_requested(
+            persist_db=persist_db,
+            result=result,
+            settings=settings,
+        )
+        _print_pmc_idconv_summary(result, db_persisted=persist_db)
+        return
+
+    if not settings.ncbi_email:
+        typer.echo("NCBI_EMAIL is required for --live PMC ID Converter calls.", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        result = run_idconv(
+            pmids=requested_pmids,
+            artifact_store=artifact_store,
+            settings=settings,
+        )
+    except PmcHTTPStatusError as exc:
+        _exit_pmc_http_status_error(exc)
+    _persist_pmc_idconv_if_requested(
+        persist_db=persist_db,
+        result=result,
+        settings=settings,
+    )
+    _print_pmc_idconv_summary(result, db_persisted=persist_db)
+
+
+def _persist_pmc_idconv_if_requested(
+    *,
+    persist_db: bool,
+    result: PmcIdConverterAdapterResult,
+    settings: Settings,
+) -> None:
+    if not persist_db:
+        return
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory.begin() as session:
+            persist_pmc_idconv_result(session, result=result)
+    finally:
+        engine.dispose()
+
+
+def _print_pmc_idconv_summary(
+    result: PmcIdConverterAdapterResult,
+    *,
+    db_persisted: bool,
+) -> None:
+    parsed = result.parsed
+    missing_pmids = ",".join(parsed.missing_pmids) if parsed.missing_pmids else "none"
+    typer.echo(f"records_returned: {parsed.records_returned}")
+    typer.echo(f"pmcids_returned: {parsed.pmcids_returned}")
+    typer.echo(f"missing_pmids: {missing_pmids}")
+    typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
+    typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
+    typer.echo(f"db_persisted: {db_persisted}")
+
+
+def _exit_pmc_http_status_error(exc: PmcHTTPStatusError) -> NoReturn:
+    typer.echo(
+        (
+            f"PMC {exc.operation} failed with HTTP {exc.http_status}. "
+            f"Raw response artifact was preserved: "
+            f"raw_payload_hash={exc.raw_payload_hash}; "
+            f"manifest_hash={exc.source_snapshot_manifest_hash}; "
+            f"raw_artifact_uri={exc.raw_artifact_uri}."
+        ),
+        err=True,
+    )
+    raise typer.Exit(code=1) from exc
 
 
 @enrich_app.command("openalex")

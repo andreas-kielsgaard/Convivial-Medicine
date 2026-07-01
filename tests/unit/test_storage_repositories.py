@@ -65,6 +65,7 @@ def test_storage_repositories_do_not_import_pubmed_adapter_modules() -> None:
     source = inspect.getsource(repositories)
 
     assert "convivial_medicine.adapters.pubmed" not in source
+    assert "convivial_medicine.adapters.pmc" not in source
 
 
 def test_pubmed_esearch_source_snapshot_mapping_populates_expected_values(tmp_path: Path) -> None:

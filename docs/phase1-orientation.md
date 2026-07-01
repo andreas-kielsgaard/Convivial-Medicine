@@ -19,6 +19,12 @@ PubMed ESearch defines membership for the seed corpus. PubMed ESummary retrieves
 PubMed-side metadata for known PMIDs. PubMed EFetch retrieves known-PMID PubMed
 record snapshots. All three adapters preserve raw response bytes before parsing.
 
+PMC ID Converter is the next PMC-side gate for those known PubMed records. It
+records whether PMC returns identifier mappings or availability fields for a
+PMID batch, preserves the raw JSON response before parsing, and treats
+not-returned PMIDs as normal missing/not-in-PMC results. A returned PMCID does
+not imply legal reuse permission or fetch full text.
+
 `corpus query pubmed` remains database-free by default. Passing `--persist-db`
 explicitly attempts a Postgres connection and stores the query manifest, raw
 source snapshot metadata, and source snapshot manifest rows for fixture or live
@@ -32,16 +38,22 @@ for fixture or live ESummary runs, but does not create normalized works yet.
 snapshots. It persists source snapshot metadata and manifests only when
 `--persist-db` is passed.
 
+`corpus enrich pmc-idconv` follows that same explicit persistence boundary. It
+stores source snapshot metadata and manifests only when `--persist-db` is
+passed, and it does not create normalized works or full-text assets.
+
 ## Source Order
 
 1. PubMed defines corpus membership and PubMed-side record snapshots.
-2. PMC ID Converter and PMC BioC provide the lawful full-text path when content
-   is available through approved services.
-3. OpenAlex singleton lookups enrich already identified works.
+2. PMC ID Converter determines PMC identifier and availability eligibility for
+   known PMIDs.
+3. PMC BioC may later retrieve lawful full-text content where available through
+   approved services.
+4. OpenAlex singleton lookups enrich already identified works.
 
 ## Deferred Work
 
-- PMC ID Converter and BioC adapters.
+- PMC BioC/full-text retrieval adapters.
 - Live PMC and OpenAlex adapters.
 - Source adapter implementations beyond PubMed ESearch/ESummary/EFetch and the schema v1
   persistence boundary.
