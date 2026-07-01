@@ -80,6 +80,10 @@ from convivial_medicine.orchestration.validation import (
     BuildValidationReport,
     validate_fixture_seed_build,
 )
+from convivial_medicine.orchestration.work_normalization import (
+    FixtureWorkProjectionSummary,
+    persist_fixture_normalized_works,
+)
 from convivial_medicine.storage.artifacts import LocalArtifactStore
 from convivial_medicine.storage.db import (
     DatabaseConnectionError,
@@ -403,6 +407,74 @@ def _print_seed_build_summary(
     typer.echo(f"source_snapshots: {summary.source_snapshot_count}")
     typer.echo(f"db_persisted: {summary.db_persisted}")
     typer.echo(f"build_report: {written_report.path}")
+
+
+@build_app.command("normalize-works")
+def build_normalize_works(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Seed query manifest to project."),
+    ] = DEFAULT_QUERY_MANIFEST_PATH,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Completed local fixture artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist normalized fixture work projection rows to Postgres.",
+        ),
+    ] = False,
+) -> None:
+    """Project a validated fixture seed build into normalized work tables."""
+    if not persist_db:
+        typer.echo(
+            "--persist-db is required for corpus build normalize-works.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    query_manifest = load_query_manifest(manifest)
+    fixture_paths = SeedFixturePaths.from_root(DEFAULT_FIXTURE_ROOT)
+    validation_report = validate_fixture_seed_build(
+        query_manifest=query_manifest,
+        artifact_root=artifact_root,
+        fixture_paths=fixture_paths,
+    )
+    if not validation_report.ok:
+        typer.echo("Build validation failed; normalization skipped.", err=True)
+        _print_build_validation_report(validation_report)
+        raise typer.Exit(code=1)
+
+    settings = get_settings()
+    try:
+        check_database_connection(settings)
+    except DatabaseConnectionError as exc:
+        typer.echo(f"database_persistence: failed ({exc})", err=True)
+        raise typer.Exit(code=1) from exc
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory.begin() as session:
+            summary = persist_fixture_normalized_works(
+                session,
+                query_manifest=query_manifest,
+                artifact_root=artifact_root,
+                fixture_paths=fixture_paths,
+            )
+    finally:
+        engine.dispose()
+
+    _print_work_normalization_summary(summary)
+
+
+def _print_work_normalization_summary(summary: FixtureWorkProjectionSummary) -> None:
+    typer.echo(f"works: {summary.works}")
+    typer.echo(f"identifiers: {summary.identifiers}")
+    typer.echo(f"source_links: {summary.source_links}")
+    typer.echo(f"db_persisted: {summary.db_persisted}")
 
 
 @fetch_app.command("pubmed-summary")
