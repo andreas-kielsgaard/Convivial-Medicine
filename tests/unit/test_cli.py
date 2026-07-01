@@ -9,6 +9,7 @@ from convivial_medicine.cli.main import app
 runner = CliRunner()
 FIXTURE_PATH = Path("tests/fixtures/pubmed/esearch_vitamin_d_ms_seed.json")
 ESUMMARY_FIXTURE_PATH = Path("tests/fixtures/pubmed/esummary_vitamin_d_ms_seed.json")
+EFETCH_FIXTURE_PATH = Path("tests/fixtures/pubmed/efetch_vitamin_d_ms_seed.xml")
 
 
 def test_root_help() -> None:
@@ -107,6 +108,39 @@ def test_pubmed_summary_fixture_mode_prints_summary(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "summaries_returned: 3" in result.output
+    assert "pmids_returned: 3" in result.output
+    assert "raw_payload_hash: sha256:" in result.output
+    assert "manifest_hash: sha256:" in result.output
+    assert "db_persisted: False" in result.output
+    assert any((tmp_path / "sha256").glob("*/*"))
+
+
+def test_pubmed_records_default_does_not_call_network() -> None:
+    result = runner.invoke(app, ["fetch", "pubmed-records"])
+
+    assert result.exit_code == 0
+    assert "No PubMed record fetch run" in result.output
+    assert "--fixture PATH" in result.output
+    assert "--live" in result.output
+
+
+def test_pubmed_records_fixture_mode_prints_summary(tmp_path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "fetch",
+            "pubmed-records",
+            "--pmids",
+            "11111111,22222222,33333333",
+            "--fixture",
+            str(EFETCH_FIXTURE_PATH),
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "records_returned: 3" in result.output
     assert "pmids_returned: 3" in result.output
     assert "raw_payload_hash: sha256:" in result.output
     assert "manifest_hash: sha256:" in result.output

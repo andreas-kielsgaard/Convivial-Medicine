@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation Status="MEDLINE" Owner="NLM">
+      <PMID Version="1">11111111</PMID>
+      <Article>
+        <Journal>
+          <Title>Neurology</Title>
+        </Journal>
+        <ArticleTitle>Vitamin D status and multiple sclerosis risk.</ArticleTitle>
+      </Article>
+    </MedlineCitation>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation Status="MEDLINE" Owner="NLM">
+      <PMID Version="1">22222222</PMID>
+      <Article>
+        <Journal>
+          <Title>Multiple Sclerosis Journal</Title>
+        </Journal>
+        <ArticleTitle>Serum vitamin D and disease activity in multiple sclerosis.</ArticleTitle>
+      </Article>
+    </MedlineCitation>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation Status="MEDLINE" Owner="NLM">
+      <PMID Version="1">33333333</PMID>
+      <Article>
+        <Journal>
+          <Title>Journal of Neuroimmunology</Title>
+        </Journal>
+        <ArticleTitle>A pilot study of vitamin D supplementation in MS.</ArticleTitle>
+      </Article>
+    </MedlineCitation>
+  </PubmedArticle>
+</PubmedArticleSet>

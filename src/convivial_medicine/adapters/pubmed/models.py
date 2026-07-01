@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from xml.etree import ElementTree
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -154,3 +155,64 @@ def _publication_year(payload: dict[str, Any]) -> int | None:
         if match:
             return int(match.group(0))
     return None
+
+
+class PubMedEFetchResult(BaseModel):
+    requested_pmids: tuple[str, ...]
+    returned_pmids: tuple[str, ...]
+    records_returned: int
+    source_snapshot_manifest_hash: str
+    raw_payload_hash: str
+
+    @classmethod
+    def from_xml_bytes(
+        cls,
+        raw_bytes: bytes,
+        *,
+        requested_pmids: tuple[str, ...],
+        source_snapshot_manifest_hash: str,
+        raw_payload_hash: str,
+    ) -> PubMedEFetchResult:
+        try:
+            root = ElementTree.fromstring(raw_bytes)
+        except ElementTree.ParseError as exc:
+            msg = f"PubMed EFetch response must be XML: {exc}"
+            raise ValueError(msg) from exc
+
+        returned_pmids = _pmids_from_pubmed_xml(root)
+        return cls(
+            requested_pmids=requested_pmids,
+            returned_pmids=returned_pmids,
+            records_returned=len(returned_pmids),
+            source_snapshot_manifest_hash=source_snapshot_manifest_hash,
+            raw_payload_hash=raw_payload_hash,
+        )
+
+
+def pubmed_xml_provider_payload(raw_bytes: bytes) -> dict[str, Any]:
+    try:
+        root = ElementTree.fromstring(raw_bytes)
+    except ElementTree.ParseError as exc:
+        msg = f"PubMed EFetch response must be XML: {exc}"
+        raise ValueError(msg) from exc
+
+    returned_pmids = _pmids_from_pubmed_xml(root)
+    return {
+        "format": "xml",
+        "root_tag": _strip_xml_namespace(root.tag),
+        "returned_pmids": list(returned_pmids),
+        "records_returned": len(returned_pmids),
+    }
+
+
+def _pmids_from_pubmed_xml(root: ElementTree.Element) -> tuple[str, ...]:
+    pmids: list[str] = []
+    for article in root.findall(".//PubmedArticle"):
+        pmid_element = article.find("./MedlineCitation/PMID")
+        if pmid_element is not None and pmid_element.text:
+            pmids.append(pmid_element.text.strip())
+    return tuple(pmid for pmid in pmids if pmid)
+
+
+def _strip_xml_namespace(tag: str) -> str:
+    return tag.rsplit("}", maxsplit=1)[-1]
