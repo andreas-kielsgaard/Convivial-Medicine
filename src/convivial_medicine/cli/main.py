@@ -71,6 +71,11 @@ from convivial_medicine.orchestration.seed import (
     SeedRunSummary,
     run_seed_build,
 )
+from convivial_medicine.orchestration.slice_export import (
+    FixtureSliceValidationError,
+    WrittenFixtureSliceExport,
+    write_fixture_slice_export,
+)
 from convivial_medicine.orchestration.validation import (
     BuildValidationReport,
     validate_fixture_seed_build,
@@ -1200,9 +1205,49 @@ def _print_build_validation_report(report: BuildValidationReport) -> None:
 
 
 @export_app.command("slice")
-def export_slice() -> None:
-    """Export a deterministic corpus slice."""
-    _not_implemented("corpus export slice")
+def export_slice(
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Validated local artifact root to export."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Seed query manifest to export."),
+    ] = DEFAULT_QUERY_MANIFEST_PATH,
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Deterministic JSON slice export path."),
+    ] = Path("fixture-slice.json"),
+) -> None:
+    """Export a validated fixture seed build as deterministic JSON."""
+    query_manifest = load_query_manifest(manifest)
+    try:
+        written_export = write_fixture_slice_export(
+            query_manifest=query_manifest,
+            artifact_root=artifact_root,
+            output=output,
+            fixture_paths=SeedFixturePaths.from_root(DEFAULT_FIXTURE_ROOT),
+        )
+    except FixtureSliceValidationError as exc:
+        typer.echo("Build validation failed; export skipped.", err=True)
+        _print_build_validation_report(exc.report)
+        raise typer.Exit(code=1) from exc
+
+    _print_fixture_slice_export_summary(written_export)
+
+
+def _print_fixture_slice_export_summary(written_export: WrittenFixtureSliceExport) -> None:
+    payload = written_export.payload
+    manifest = payload["manifest"]
+    build_report = payload["build_report"]
+    typer.echo("status: ok")
+    typer.echo(f"manifest_name: {manifest['name']}")
+    typer.echo(f"manifest_hash: {manifest['hash']}")
+    typer.echo(f"mode: {build_report['mode']}")
+    typer.echo(f"source_steps: {len(payload['source_steps'])}")
+    typer.echo(f"raw_artifacts: {len(payload['raw_artifact_hashes'])}")
+    typer.echo(f"source_snapshots: {len(payload['source_snapshot_manifest_hashes'])}")
+    typer.echo(f"output: {written_export.path}")
 
 
 @audit_app.command("lineage")

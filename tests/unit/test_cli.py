@@ -352,6 +352,145 @@ def test_validate_build_fails_when_report_hash_list_disagrees_with_artifacts(
     assert "missing raw artifacts: 1" in result.output
 
 
+def test_export_slice_succeeds_after_fixture_build(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    output_path = tmp_path / "slice.json"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "slice",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "status: ok" in result.output
+    assert f"output: {output_path}" in result.output
+    assert output_path.is_file()
+
+    output_text = output_path.read_text(encoding="utf-8")
+    payload = json.loads(output_text)
+    assert payload["schema_version"] == "fixture-slice-export-v1"
+    assert payload["manifest"]["name"] == "vitamin_D_ms_seed_v1"
+    assert payload["manifest"]["hash"].startswith("sha256:")
+    assert payload["build_report"]["counts"] == {
+        "raw_artifacts": 6,
+        "source_snapshots": 6,
+        "steps": 6,
+    }
+    assert [step["name"] for step in payload["source_steps"]] == [
+        "pubmed_esearch",
+        "pubmed_esummary",
+        "pubmed_efetch",
+        "pmc_idconv",
+        "pmc_bioc",
+        "openalex_work",
+    ]
+    assert len(payload["raw_artifact_hashes"]) == 6
+    assert len(payload["source_snapshot_manifest_hashes"]) == 6
+    assert payload["source_steps"][0]["parsed_summary"]["pmids"] == [
+        "11111111",
+        "22222222",
+        "33333333",
+    ]
+    assert payload["source_steps"][4]["parsed_summary"]["passage_count"] == 3
+    assert "A short fixture abstract passage" not in output_text
+
+
+def test_export_slice_fails_if_validation_fails(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "missing-artifacts"
+    output_path = tmp_path / "slice.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "slice",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert not output_path.exists()
+    assert "Build validation failed; export skipped." in result.output
+    assert "status: failed" in result.output
+    assert "artifact root is missing" in result.output
+
+
+def test_export_slice_output_is_stable_for_key_fields(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    first_output_path = tmp_path / "slice-first.json"
+    second_output_path = tmp_path / "slice-second.json"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    for output_path in (first_output_path, second_output_path):
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                "slice",
+                "--manifest",
+                "manifests/vitamin_D_ms_seed_v1.json",
+                "--artifact-root",
+                str(artifact_root),
+                "--output",
+                str(output_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+    assert first_output_path.read_text(encoding="utf-8") == second_output_path.read_text(
+        encoding="utf-8"
+    )
+    payload = json.loads(first_output_path.read_text(encoding="utf-8"))
+    assert payload["source_steps"][1]["parsed_summary"]["articles"][0] == {
+        "doi": "10.1000/vitd-ms.2021.001",
+        "pmid": "11111111",
+        "pub_year": 2021,
+        "pubdate": "2021 Mar",
+        "source": "Neurology",
+        "title": "Vitamin D status and multiple sclerosis risk.",
+    }
+    assert payload["source_steps"][5]["parsed_summary"]["openalex_id"] == (
+        "https://openalex.org/W1111111111"
+    )
+
+
 def test_pubmed_query_fixture_mode_prints_summary(tmp_path) -> None:
     result = runner.invoke(
         app,
