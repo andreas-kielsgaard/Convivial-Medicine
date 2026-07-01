@@ -62,6 +62,10 @@ from convivial_medicine.adapters.pubmed.persistence import (
 )
 from convivial_medicine.config import Settings, get_settings
 from convivial_medicine.domain.manifests import QueryManifest, load_query_manifest
+from convivial_medicine.orchestration.build_report import (
+    WrittenSeedBuildReport,
+    write_seed_build_report,
+)
 from convivial_medicine.orchestration.seed import (
     SeedFixturePaths,
     SeedRunSummary,
@@ -339,10 +343,18 @@ def build_seed(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    _print_seed_build_summary(summary)
+    written_report = write_seed_build_report(
+        artifact_root=artifact_root,
+        summary=summary,
+    )
+    _print_seed_build_summary(summary, written_report=written_report)
 
 
-def _print_seed_build_summary(summary: SeedRunSummary) -> None:
+def _print_seed_build_summary(
+    summary: SeedRunSummary,
+    *,
+    written_report: WrittenSeedBuildReport,
+) -> None:
     results = summary.results
     bioc_pmcids = tuple(result.parsed.requested_id for result in results.pmc_bioc)
     bioc_raw_hashes = tuple(result.raw_artifact.artifact_hash for result in results.pmc_bioc)
@@ -385,6 +397,7 @@ def _print_seed_build_summary(summary: SeedRunSummary) -> None:
     typer.echo(f"raw_artifacts: {len(summary.raw_artifact_hashes)}")
     typer.echo(f"source_snapshots: {summary.source_snapshot_count}")
     typer.echo(f"db_persisted: {summary.db_persisted}")
+    typer.echo(f"build_report: {written_report.path}")
 
 
 @fetch_app.command("pubmed-summary")
@@ -1148,14 +1161,28 @@ def validate_build(
 
 
 def _print_build_validation_report(report: BuildValidationReport) -> None:
+    actual_report = report.actual_report
+    expected_report = report.expected_report
+    source_snapshot_manifest_hashes = (
+        actual_report.source_snapshot_manifest_hashes
+        if actual_report is not None
+        else expected_report.source_snapshot_manifest_hashes
+    )
     typer.echo(f"status: {'ok' if report.ok else 'failed'}")
     typer.echo(f"manifest_name: {report.manifest_name}")
     typer.echo(f"manifest_hash: {report.manifest_hash}")
+    typer.echo(f"mode: {actual_report.mode if actual_report is not None else 'missing'}")
     typer.echo(f"artifact_root: {report.artifact_root}")
-    typer.echo(f"steps: {report.actual_step_count}/{report.expected_step_count}")
+    typer.echo(f"build_report: {report.build_report_path}")
+    typer.echo(f"build_report_present: {actual_report is not None}")
+    actual_step_count = actual_report.counts.steps if actual_report is not None else 0
+    actual_source_snapshot_count = (
+        actual_report.counts.source_snapshots if actual_report is not None else 0
+    )
+    typer.echo(f"steps: {actual_step_count}/{expected_report.counts.steps}")
     typer.echo(
         "source_snapshots: "
-        f"{report.actual_source_snapshot_count}/{report.expected_source_snapshot_count}"
+        f"{actual_source_snapshot_count}/{expected_report.counts.source_snapshots}"
     )
     typer.echo(
         "raw_artifacts: "
@@ -1163,8 +1190,10 @@ def _print_build_validation_report(report: BuildValidationReport) -> None:
     )
     typer.echo(f"raw_artifact_hashes: {_comma_join_or_none(report.raw_artifact_hashes)}")
     typer.echo(
-        "source_snapshot_manifest_hashes: "
-        f"{_comma_join_or_none(report.source_snapshot_manifest_hashes)}"
+        f"source_snapshot_manifest_hashes: {_comma_join_or_none(source_snapshot_manifest_hashes)}"
+    )
+    typer.echo(
+        f"db_persisted: {actual_report.db_persisted if actual_report is not None else 'missing'}"
     )
     typer.echo(f"missing_raw_artifacts: {_comma_join_or_none(report.missing_raw_artifact_hashes)}")
     typer.echo(f"errors: {_comma_join_or_none(report.errors)}")
