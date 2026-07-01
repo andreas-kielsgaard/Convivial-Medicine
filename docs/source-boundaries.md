@@ -10,11 +10,14 @@ Failed PubMed HTTP responses are also provenance artifacts: live non-2xx
 ESearch, ESummary, and EFetch responses are written to the artifact store and
 represented by source snapshot manifests before the adapter raises.
 
-PMC is the full-text gate. Full text must come through PMC-approved services
-such as PMC ID Converter and PMC BioC when available. Do not scrape PMC HTML.
+PMC ID Converter is the PMC-side eligibility and identifier gate for known
+PubMed records. It may report PMCID, DOI, MID, and availability metadata such
+as `live` or `release-date`, and it may simply omit PMIDs that are not in PMC.
+Those omissions are normal eligibility results, not transport failures.
 
-Later PMC adapter work must store approved raw source bytes before extracting or
-normalizing full-text artifacts.
+Raw PMC ID Converter responses are stored before parsing. PMCID presence is not
+the same as full-text retrieval or legal reuse permission. PMC BioC/full-text
+retrieval remains deferred, and PMC HTML must not be scraped.
 
 OpenAlex is singleton enrichment only. Later branches may look up one known work
 at a time to enrich already selected corpus records. OpenAlex must not define

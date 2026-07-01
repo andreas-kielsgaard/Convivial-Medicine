@@ -25,6 +25,12 @@ and EFetch XML bytes are stored before parsing. Live non-2xx PubMed HTTP
 responses are also stored as raw artifacts and represented by source snapshot
 manifests before the adapter reports the HTTP failure.
 
+PMC ID Converter is the PMC-side identifier and availability gate for known
+PMIDs. It can report PMID-to-PMCID/DOI/MID mappings, missing/not-in-PMC PMIDs,
+and availability fields such as `live` or `release-date` when PMC provides
+them. Raw ID Converter JSON bytes are stored before parsing. A PMCID is not, by
+itself, legal reuse permission, and this branch does not fetch PMC full text.
+
 ESearch can optionally persist query manifest, source snapshot, and snapshot
 manifest records to Postgres with `corpus query pubmed --persist-db`. Database
 persistence is explicit and off by default; fixture and live ESearch runs still
@@ -38,6 +44,10 @@ works yet.
 EFetch can optionally persist source snapshot and snapshot manifest records with
 `corpus fetch pubmed-records --persist-db`; it also does not create normalized
 works yet.
+
+PMC ID Converter can optionally persist source snapshot and snapshot manifest
+records with `corpus enrich pmc-idconv --persist-db`; it does not create works
+or full-text assets.
 
 ## Development
 
@@ -64,6 +74,7 @@ uv run corpus doctor
 uv run corpus query pubmed --fixture tests/fixtures/pubmed/esearch_vitamin_d_ms_seed.json
 uv run corpus fetch pubmed-summary --pmids 11111111,22222222,33333333 --fixture tests/fixtures/pubmed/esummary_vitamin_d_ms_seed.json
 uv run corpus fetch pubmed-records --pmids 11111111,22222222,33333333 --fixture tests/fixtures/pubmed/efetch_vitamin_d_ms_seed.xml
+uv run corpus enrich pmc-idconv --pmids 11111111,22222222,33333333 --fixture tests/fixtures/pmc/idconv_vitamin_d_ms_seed.json
 ```
 
 Run the API locally:
