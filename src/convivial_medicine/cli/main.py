@@ -62,6 +62,11 @@ from convivial_medicine.adapters.pubmed.persistence import (
 )
 from convivial_medicine.config import Settings, get_settings
 from convivial_medicine.domain.manifests import QueryManifest, load_query_manifest
+from convivial_medicine.orchestration.seed import (
+    SeedFixturePaths,
+    SeedRunSummary,
+    run_seed_build,
+)
 from convivial_medicine.storage.artifacts import LocalArtifactStore
 from convivial_medicine.storage.db import (
     DatabaseConnectionError,
@@ -72,6 +77,7 @@ from convivial_medicine.storage.db import (
 
 DEFAULT_QUERY_MANIFEST_PATH = Path("manifests/vitamin_D_ms_seed_v1.json")
 DEFAULT_ARTIFACT_ROOT = Path(".artifacts")
+DEFAULT_FIXTURE_ROOT = Path("tests/fixtures")
 
 app = typer.Typer(
     name="corpus",
@@ -258,9 +264,123 @@ def _print_pubmed_esearch_summary(
 
 
 @build_app.command("seed")
-def build_seed() -> None:
+def build_seed(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Seed query manifest to execute or replay."),
+    ] = DEFAULT_QUERY_MANIFEST_PATH,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    fixture_root: Annotated[
+        Path,
+        typer.Option("--fixture-root", help="Fixture root used when --live is omitted."),
+    ] = DEFAULT_FIXTURE_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make live source calls instead of replaying fixtures."),
+    ] = False,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist source snapshots and snapshot manifests to Postgres.",
+        ),
+    ] = False,
+) -> None:
     """Build a named seed corpus."""
-    _not_implemented("corpus build seed")
+    query_manifest = load_query_manifest(manifest)
+    artifact_store = LocalArtifactStore(artifact_root)
+    settings = get_settings()
+    fixture_paths = SeedFixturePaths.from_root(fixture_root)
+
+    try:
+        if persist_db:
+            try:
+                check_database_connection(settings)
+            except DatabaseConnectionError as exc:
+                typer.echo(f"database_persistence: failed ({exc})", err=True)
+                raise typer.Exit(code=1) from exc
+
+            engine = make_engine(settings)
+            try:
+                session_factory = make_session_factory(engine=engine)
+                with session_factory.begin() as session:
+                    summary = run_seed_build(
+                        query_manifest=query_manifest,
+                        artifact_store=artifact_store,
+                        settings=settings,
+                        live=live,
+                        fixture_paths=fixture_paths,
+                        persist_db_session=session,
+                    )
+            finally:
+                engine.dispose()
+        else:
+            summary = run_seed_build(
+                query_manifest=query_manifest,
+                artifact_store=artifact_store,
+                settings=settings,
+                live=live,
+                fixture_paths=fixture_paths,
+            )
+    except PubMedHTTPStatusError as exc:
+        _exit_pubmed_http_status_error(exc)
+    except PmcHTTPStatusError as exc:
+        _exit_pmc_http_status_error(exc)
+    except OpenAlexHTTPStatusError as exc:
+        _exit_openalex_http_status_error(exc)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    _print_seed_build_summary(summary)
+
+
+def _print_seed_build_summary(summary: SeedRunSummary) -> None:
+    results = summary.results
+    bioc_pmcids = tuple(result.parsed.requested_id for result in results.pmc_bioc)
+    bioc_raw_hashes = tuple(result.raw_artifact.artifact_hash for result in results.pmc_bioc)
+    bioc_document_count = sum(result.parsed.document_count for result in results.pmc_bioc)
+    bioc_passage_count = sum(result.parsed.passage_count for result in results.pmc_bioc)
+
+    typer.echo(f"manifest_name: {summary.manifest_name}")
+    typer.echo(f"manifest_hash: {summary.manifest_hash}")
+    typer.echo(f"mode: {summary.mode}")
+    typer.echo(
+        "step_order: pubmed_esearch,pubmed_esummary,pubmed_efetch,pmc_idconv,pmc_bioc,openalex_work"
+    )
+    typer.echo(f"pubmed_esearch.count: {results.pubmed_esearch.parsed.count}")
+    typer.echo(f"pubmed_esearch.pmids_returned: {len(results.pubmed_esearch.parsed.pmids)}")
+    typer.echo(
+        f"pubmed_esearch.raw_payload_hash: {results.pubmed_esearch.raw_artifact.artifact_hash}"
+    )
+    typer.echo(
+        f"pubmed_esummary.summaries_returned: {results.pubmed_esummary.parsed.summaries_returned}"
+    )
+    typer.echo(
+        f"pubmed_esummary.raw_payload_hash: {results.pubmed_esummary.raw_artifact.artifact_hash}"
+    )
+    typer.echo(f"pubmed_efetch.records_returned: {results.pubmed_efetch.parsed.records_returned}")
+    typer.echo(
+        f"pubmed_efetch.raw_payload_hash: {results.pubmed_efetch.raw_artifact.artifact_hash}"
+    )
+    typer.echo(f"pmc_idconv.records_returned: {results.pmc_idconv.parsed.records_returned}")
+    typer.echo(f"pmc_idconv.pmcids_returned: {results.pmc_idconv.parsed.pmcids_returned}")
+    typer.echo(f"pmc_idconv.raw_payload_hash: {results.pmc_idconv.raw_artifact.artifact_hash}")
+    typer.echo(f"pmc_bioc.requests: {len(results.pmc_bioc)}")
+    typer.echo(f"pmc_bioc.pmcids: {_comma_join_or_none(bioc_pmcids)}")
+    typer.echo(f"pmc_bioc.document_count: {bioc_document_count}")
+    typer.echo(f"pmc_bioc.passage_count: {bioc_passage_count}")
+    typer.echo(f"pmc_bioc.raw_payload_hashes: {_comma_join_or_none(bioc_raw_hashes)}")
+    typer.echo(f"openalex.requested_id_type: {results.openalex_work.parsed.requested_id_type}")
+    typer.echo(f"openalex.requested_id: {results.openalex_work.parsed.requested_id}")
+    typer.echo(f"openalex.openalex_id: {results.openalex_work.parsed.openalex_id or 'missing'}")
+    typer.echo(f"openalex.raw_payload_hash: {results.openalex_work.raw_artifact.artifact_hash}")
+    typer.echo(f"raw_artifacts: {len(summary.raw_artifact_hashes)}")
+    typer.echo(f"source_snapshots: {summary.source_snapshot_count}")
+    typer.echo(f"db_persisted: {summary.db_persisted}")
 
 
 @fetch_app.command("pubmed-summary")
@@ -361,6 +481,10 @@ def _parse_pmids_option(pmids: str | None) -> tuple[str, ...]:
     if pmids is None:
         return ()
     return tuple(pmid.strip() for pmid in pmids.split(",") if pmid.strip())
+
+
+def _comma_join_or_none(values: tuple[str, ...]) -> str:
+    return ",".join(values) if values else "none"
 
 
 def _persist_pubmed_esummary_if_requested(

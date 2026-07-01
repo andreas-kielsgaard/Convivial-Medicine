@@ -65,6 +65,66 @@ def test_pubmed_query_default_does_not_call_network() -> None:
     assert "--live" in result.output
 
 
+def test_seed_build_default_uses_fixture_mode_without_network(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fail_live_call(**_: object) -> object:
+        raise AssertionError("live source call should not run")
+
+    monkeypatch.setattr("convivial_medicine.orchestration.seed.run_esearch", fail_live_call)
+    monkeypatch.setattr("convivial_medicine.orchestration.seed.run_esummary", fail_live_call)
+    monkeypatch.setattr("convivial_medicine.orchestration.seed.run_efetch", fail_live_call)
+    monkeypatch.setattr("convivial_medicine.orchestration.seed.run_idconv", fail_live_call)
+    monkeypatch.setattr("convivial_medicine.orchestration.seed.run_bioc", fail_live_call)
+    monkeypatch.setattr("convivial_medicine.orchestration.seed.run_openalex_work", fail_live_call)
+
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "mode: fixture" in result.output
+    assert "pubmed_esearch.pmids_returned: 3" in result.output
+    assert "pmc_bioc.requests: 1" in result.output
+    assert "openalex.requested_id: 11111111" in result.output
+    assert "source_snapshots: 6" in result.output
+    assert "db_persisted: False" in result.output
+    assert any((tmp_path / "sha256").glob("*/*"))
+
+
+def test_seed_build_live_requires_opt_in_credentials(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NCBI_EMAIL", raising=False)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--live",
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    get_settings.cache_clear()
+    assert result.exit_code == 1
+    assert "NCBI_EMAIL is required for --live seed builds" in result.output
+
+
 def test_pubmed_query_fixture_mode_prints_summary(tmp_path) -> None:
     result = runner.invoke(
         app,
