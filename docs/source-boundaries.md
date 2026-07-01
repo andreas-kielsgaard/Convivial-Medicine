@@ -16,8 +16,12 @@ as `live` or `release-date`, and it may simply omit PMIDs that are not in PMC.
 Those omissions are normal eligibility results, not transport failures.
 
 Raw PMC ID Converter responses are stored before parsing. PMCID presence is not
-the same as full-text retrieval or legal reuse permission. PMC BioC/full-text
-retrieval remains deferred, and PMC HTML must not be scraped.
+the same as full-text retrieval or legal reuse permission.
+
+PMC BioC is now the approved PMC retrieval path for known IDs when PMC exposes a
+BioC payload through the API. Not all PMC articles are available through BioC,
+and BioC availability still does not imply unrestricted legal reuse. Raw BioC
+responses are stored before parsing. PMC HTML must not be scraped.
 
 OpenAlex is singleton enrichment only. Later branches may look up one known work
 at a time to enrich already selected corpus records. OpenAlex must not define
