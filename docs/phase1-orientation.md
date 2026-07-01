@@ -11,7 +11,7 @@ hashes are computed from deterministic JSON bytes with sorted keys and no
 insignificant whitespace. The current implementation is a project-level
 deterministic JSON subset, not a full RFC 8785/JCS implementation.
 
-Later adapters must write raw source response bytes to content-addressed storage
+Adapters must write raw source response bytes to content-addressed storage
 before parsing. Parsed snapshots and derived artifacts can then refer back to
 the stored payload hash and parent manifest hashes.
 
@@ -57,6 +57,11 @@ PMID, or OpenAlex work ID. It preserves raw response bytes before parsing a
 minimal enrichment model, persists source snapshot metadata and manifests only
 when `--persist-db` is passed, and does not define corpus membership.
 
+The completed fixture build workflow is documented in
+[`phase1-fixture-workflow.md`](phase1-fixture-workflow.md). It runs
+`corpus build seed`, `corpus validate build`, and `corpus export slice` for the
+deterministic `vitamin_D_ms_seed_v1` fixture corpus.
+
 ## Source Order
 
 1. PubMed defines corpus membership and PubMed-side record snapshots.
@@ -69,9 +74,9 @@ when `--persist-db` is passed, and does not define corpus membership.
 ## Deferred Work
 
 - Broader PMC full-text ingestion and legal reuse interpretation.
-- Source adapter implementations beyond the current PubMed, PMC, and OpenAlex
-  singleton persistence boundary.
-- OpenAlex search, bulk enrichment, work normalization, and build orchestration.
+- Source adapters outside the current PubMed, PMC, and OpenAlex singleton
+  persistence boundary.
+- OpenAlex search, bulk enrichment, and work normalization.
 - Task orchestration behavior beyond the initial build run tables.
 - Source retry, rate-limit, and provenance policies.
 - External artifact persistence beyond deterministic local primitives.

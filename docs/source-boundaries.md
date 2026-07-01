@@ -28,8 +28,7 @@ by DOI, PMID, or OpenAlex work ID to enrich already selected corpus records.
 OpenAlex must not define membership for the Phase One seed corpus.
 
 OpenAlex raw singleton lookup bytes are stored before parsing enrichment fields.
-OpenAlex does not search, bulk enrich, normalize works, or orchestrate builds in
-this phase.
+OpenAlex does not search, bulk enrich, or normalize works in this phase.
 
 Crossref, Unpaywall, PubTator, and Semantic Scholar are outside Phase One branch
 work unless a later prompt explicitly changes that boundary.
