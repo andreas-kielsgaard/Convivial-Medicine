@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, NoReturn, cast
 
 import typer
 
 from convivial_medicine import __version__
+from convivial_medicine.adapters.openalex.errors import OpenAlexHTTPStatusError
+from convivial_medicine.adapters.openalex.persistence import persist_openalex_work_result
+from convivial_medicine.adapters.openalex.work import (
+    OpenAlexWorkAdapterResult,
+    OpenAlexWorkIdentifierType,
+    build_openalex_work_request,
+    process_openalex_work_response_bytes,
+    run_openalex_work,
+)
 from convivial_medicine.adapters.pmc.bioc import (
     PmcBioCAdapterResult,
     build_bioc_request,
@@ -798,9 +807,184 @@ def _exit_pmc_http_status_error(exc: PmcHTTPStatusError) -> NoReturn:
 
 
 @enrich_app.command("openalex")
-def enrich_openalex() -> None:
+def enrich_openalex(
+    doi: Annotated[
+        str | None,
+        typer.Option("--doi", help="Known DOI to enrich through OpenAlex."),
+    ] = None,
+    pmid: Annotated[
+        str | None,
+        typer.Option("--pmid", help="Known PubMed ID to enrich through OpenAlex."),
+    ] = None,
+    openalex_id: Annotated[
+        str | None,
+        typer.Option("--openalex-id", help="Known OpenAlex work ID, such as W2741809807."),
+    ] = None,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make a live OpenAlex singleton work call."),
+    ] = False,
+    fixture: Annotated[
+        Path | None,
+        typer.Option(
+            "--fixture",
+            help="Read saved OpenAlex work response bytes instead of calling the network.",
+        ),
+    ] = None,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist source snapshot and snapshot manifest rows to Postgres.",
+        ),
+    ] = False,
+) -> None:
     """Enrich a selected record through an OpenAlex singleton lookup."""
-    _not_implemented("corpus enrich openalex")
+    if live and fixture is not None:
+        typer.echo("Use either --live or --fixture, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    if not live and fixture is None:
+        typer.echo(
+            "No OpenAlex enrichment run. Pass one of --doi, --pmid, or --openalex-id "
+            "with --fixture PATH to replay bytes or --live to call OpenAlex."
+        )
+        return
+
+    try:
+        identifier, id_type = _single_openalex_identifier(
+            doi=doi,
+            pmid=pmid,
+            openalex_id=openalex_id,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+    settings = get_settings()
+    artifact_store = LocalArtifactStore(artifact_root)
+    request = build_openalex_work_request(
+        identifier,
+        id_type=id_type,
+        settings=settings,
+    )
+
+    if persist_db:
+        try:
+            check_database_connection(settings)
+        except DatabaseConnectionError as exc:
+            typer.echo(f"database_persistence: failed ({exc})", err=True)
+            raise typer.Exit(code=1) from exc
+
+    if fixture is not None:
+        result = process_openalex_work_response_bytes(
+            raw_bytes=fixture.read_bytes(),
+            artifact_store=artifact_store,
+            request=request,
+            http_status=200,
+            content_type="application/json",
+        )
+        _persist_openalex_work_if_requested(
+            persist_db=persist_db,
+            result=result,
+            settings=settings,
+        )
+        _print_openalex_work_summary(result, db_persisted=persist_db)
+        return
+
+    if not settings.openalex_api_key:
+        typer.echo("OPENALEX_API_KEY is required for --live OpenAlex calls.", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        result = run_openalex_work(
+            identifier=identifier,
+            id_type=id_type,
+            artifact_store=artifact_store,
+            settings=settings,
+        )
+    except OpenAlexHTTPStatusError as exc:
+        _exit_openalex_http_status_error(exc)
+    _persist_openalex_work_if_requested(
+        persist_db=persist_db,
+        result=result,
+        settings=settings,
+    )
+    _print_openalex_work_summary(result, db_persisted=persist_db)
+
+
+def _single_openalex_identifier(
+    *,
+    doi: str | None,
+    pmid: str | None,
+    openalex_id: str | None,
+) -> tuple[str, OpenAlexWorkIdentifierType]:
+    provided = tuple(
+        (identifier.strip(), id_type)
+        for identifier, id_type in (
+            (doi, "doi"),
+            (pmid, "pmid"),
+            (openalex_id, "openalex_id"),
+        )
+        if identifier is not None and identifier.strip()
+    )
+    if len(provided) != 1:
+        raise ValueError("Pass exactly one of --doi, --pmid, or --openalex-id.")
+    identifier, id_type = provided[0]
+    return identifier, cast(OpenAlexWorkIdentifierType, id_type)
+
+
+def _persist_openalex_work_if_requested(
+    *,
+    persist_db: bool,
+    result: OpenAlexWorkAdapterResult,
+    settings: Settings,
+) -> None:
+    if not persist_db:
+        return
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory.begin() as session:
+            persist_openalex_work_result(session, result=result)
+    finally:
+        engine.dispose()
+
+
+def _print_openalex_work_summary(
+    result: OpenAlexWorkAdapterResult,
+    *,
+    db_persisted: bool,
+) -> None:
+    parsed = result.parsed
+    typer.echo(f"openalex_id: {parsed.openalex_id or 'missing'}")
+    typer.echo(f"doi: {parsed.doi or 'missing'}")
+    typer.echo(f"pmid: {parsed.pmid or 'missing'}")
+    typer.echo(f"publication_year: {parsed.publication_year or 'missing'}")
+    typer.echo(f"cited_by_count: {parsed.cited_by_count or 'missing'}")
+    typer.echo(f"is_retracted: {parsed.is_retracted}")
+    typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
+    typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
+    typer.echo(f"db_persisted: {db_persisted}")
+
+
+def _exit_openalex_http_status_error(exc: OpenAlexHTTPStatusError) -> NoReturn:
+    typer.echo(
+        (
+            f"OpenAlex {exc.operation} failed with HTTP {exc.http_status}. "
+            f"Raw response artifact was preserved: "
+            f"raw_payload_hash={exc.raw_payload_hash}; "
+            f"manifest_hash={exc.source_snapshot_manifest_hash}; "
+            f"raw_artifact_uri={exc.raw_artifact_uri}."
+        ),
+        err=True,
+    )
+    raise typer.Exit(code=1) from exc
 
 
 @validate_app.command("build")
