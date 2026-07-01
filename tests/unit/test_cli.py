@@ -50,6 +50,7 @@ def test_nested_command_help() -> None:
         ["validate", "build", "--help"],
         ["export", "slice", "--help"],
         ["audit", "lineage", "--help"],
+        ["audit", "phase-one", "--help"],
     ]
 
     for command in commands:
@@ -525,6 +526,65 @@ def test_export_slice_output_is_stable_for_key_fields(tmp_path: Path) -> None:
     assert payload["source_steps"][5]["parsed_summary"]["openalex_id"] == (
         "https://openalex.org/W1111111111"
     )
+
+
+def test_audit_phase_one_passes_after_fixture_build(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "phase-one",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "PASS build_report:" in result.output
+    assert "PASS validation: raw_artifacts=6/6 source_snapshots=6/6" in result.output
+    assert "PASS slice_export: source_steps=6 raw_artifacts=6 source_snapshots=6" in result.output
+    assert "db_projection" not in result.output
+    assert "status: ok" in result.output
+
+
+def test_audit_phase_one_fails_when_artifacts_are_missing(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "missing-artifacts"
+
+    result = runner.invoke(
+        app,
+        [
+            "audit",
+            "phase-one",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "FAIL build_report: missing" in result.output
+    assert "FAIL validation:" in result.output
+    assert "artifact root is missing" in result.output
+    assert "build report is missing" in result.output
+    assert "FAIL slice_export: validation failed" in result.output
+    assert "status: failed" in result.output
 
 
 def test_pubmed_query_fixture_mode_prints_summary(tmp_path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from sqlalchemy import select
@@ -34,6 +35,13 @@ class FixtureWorkProjectionSummary:
     identifiers: int
     source_links: int
     db_persisted: bool
+
+
+@dataclass(frozen=True)
+class FixtureWorkProjectionCounts:
+    works: int
+    identifiers: int
+    source_links: int
 
 
 @dataclass(frozen=True)
@@ -117,6 +125,41 @@ def persist_fixture_normalized_works(
         identifiers=identifier_count,
         source_links=source_link_count,
         db_persisted=True,
+    )
+
+
+def expected_fixture_work_projection_counts(
+    *,
+    query_manifest: QueryManifest,
+    fixture_paths: SeedFixturePaths,
+) -> FixtureWorkProjectionCounts:
+    """Compute fixture projection counts without touching the database."""
+    with TemporaryDirectory() as temp_root:
+        seed_summary = run_seed_build(
+            query_manifest=query_manifest,
+            artifact_store=LocalArtifactStore(Path(temp_root) / "expected-work-projection"),
+            settings=Settings(),
+            live=False,
+            fixture_paths=fixture_paths,
+        )
+
+    work_count = 0
+    identifier_count = 0
+    source_link_count = 0
+    for pmid in seed_summary.results.pubmed_esearch.parsed.pmids:
+        projection = _work_projection(
+            pmid=pmid,
+            manifest_name=query_manifest.name,
+            results=seed_summary.results,
+        )
+        work_count += 1
+        identifier_count += len(projection.identifiers)
+        source_link_count += len(projection.source_links)
+
+    return FixtureWorkProjectionCounts(
+        works=work_count,
+        identifiers=identifier_count,
+        source_links=source_link_count,
     )
 
 

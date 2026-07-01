@@ -17,6 +17,7 @@ Run the fixture path from a clean checkout:
 uv run corpus build seed
 uv run corpus validate build
 uv run corpus export slice --output .artifacts/exports/vitamin_D_ms_seed_v1.fixture-slice.json
+uv run corpus audit phase-one
 ```
 
 The commands use these defaults unless overridden:
@@ -88,6 +89,19 @@ raw_artifacts: 6
 source_snapshots: 6
 output: .artifacts/exports/vitamin_D_ms_seed_v1.fixture-slice.json
 ```
+
+`uv run corpus audit phase-one` should include:
+
+```text
+PASS build_report: .artifacts/build-reports/vitamin_D_ms_seed_v1.json
+PASS validation: raw_artifacts=6/6 source_snapshots=6/6
+PASS slice_export: source_steps=6 raw_artifacts=6 source_snapshots=6
+status: ok
+```
+
+The audit command is filesystem/artifact-only by default. It checks that the
+seed build report exists, validates the fixture build, and verifies that a
+deterministic fixture slice can be produced in a temporary location.
 
 ## Output Locations
 
@@ -162,6 +176,17 @@ This command is fixture-only: it replays the committed fixture sources, requires
 the artifact root to pass `corpus validate build`, and writes normalized `works`,
 `work_identifiers`, and `work_sources` rows only when `--persist-db` is present.
 It refuses to run without `--persist-db`.
+
+To include normalized projection counts in the Phase One audit, pass
+`--check-db` after running the projection:
+
+```powershell
+uv run corpus audit phase-one --check-db
+```
+
+The DB check verifies the expected fixture counts for `works`,
+`work_identifiers`, and `work_sources`. Without `--check-db`, the audit does not
+require a database connection.
 
 ## Live Mode
 

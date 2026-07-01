@@ -62,6 +62,11 @@ from convivial_medicine.adapters.pubmed.persistence import (
 )
 from convivial_medicine.config import Settings, get_settings
 from convivial_medicine.domain.manifests import QueryManifest, load_query_manifest
+from convivial_medicine.orchestration.audit import (
+    AuditCheck,
+    PhaseOneAuditReport,
+    audit_phase_one_fixture_workflow,
+)
 from convivial_medicine.orchestration.build_report import (
     WrittenSeedBuildReport,
     write_seed_build_report,
@@ -1326,6 +1331,92 @@ def _print_fixture_slice_export_summary(written_export: WrittenFixtureSliceExpor
 def audit_lineage() -> None:
     """Audit corpus lineage."""
     _not_implemented("corpus audit lineage")
+
+
+@audit_app.command("phase-one")
+def audit_phase_one(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Seed query manifest to audit."),
+    ] = DEFAULT_QUERY_MANIFEST_PATH,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Completed local artifact root to inspect."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    fixture_root: Annotated[
+        Path,
+        typer.Option("--fixture-root", help="Fixture root used to compute expected outputs."),
+    ] = DEFAULT_FIXTURE_ROOT,
+    check_db: Annotated[
+        bool,
+        typer.Option(
+            "--check-db",
+            help="Verify normalized fixture work projection counts in Postgres.",
+        ),
+    ] = False,
+) -> None:
+    """Audit Phase One fixture workflow readiness."""
+    query_manifest = load_query_manifest(manifest)
+    fixture_paths = SeedFixturePaths.from_root(fixture_root)
+
+    if not check_db:
+        report = audit_phase_one_fixture_workflow(
+            query_manifest=query_manifest,
+            artifact_root=artifact_root,
+            fixture_paths=fixture_paths,
+        )
+        _print_phase_one_audit_report(report)
+        if not report.ok:
+            raise typer.Exit(code=1)
+        return
+
+    settings = get_settings()
+    try:
+        check_database_connection(settings)
+    except DatabaseConnectionError as exc:
+        report = audit_phase_one_fixture_workflow(
+            query_manifest=query_manifest,
+            artifact_root=artifact_root,
+            fixture_paths=fixture_paths,
+        )
+        _print_phase_one_audit_report(
+            PhaseOneAuditReport(
+                checks=(
+                    *report.checks,
+                    AuditCheck(
+                        name="db_projection",
+                        passed=False,
+                        detail=f"database connection failed ({exc})",
+                    ),
+                )
+            )
+        )
+        raise typer.Exit(code=1) from exc
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory() as session:
+            report = audit_phase_one_fixture_workflow(
+                query_manifest=query_manifest,
+                artifact_root=artifact_root,
+                fixture_paths=fixture_paths,
+                check_db=True,
+                db_session=session,
+            )
+    finally:
+        engine.dispose()
+
+    _print_phase_one_audit_report(report)
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
+def _print_phase_one_audit_report(report: PhaseOneAuditReport) -> None:
+    for check in report.checks:
+        prefix = "PASS" if check.passed else "FAIL"
+        typer.echo(f"{prefix} {check.name}: {check.detail}")
+    typer.echo(f"status: {'ok' if report.ok else 'failed'}")
 
 
 app.add_typer(query_app, name="query")

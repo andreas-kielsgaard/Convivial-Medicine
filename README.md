@@ -107,6 +107,7 @@ Run the completed fixture workflow:
 uv run corpus build seed
 uv run corpus validate build
 uv run corpus export slice --output .artifacts/exports/vitamin_D_ms_seed_v1.fixture-slice.json
+uv run corpus audit phase-one
 ```
 
 Project a validated fixture build into normalized work tables:
@@ -118,6 +119,11 @@ uv run corpus build normalize-works --persist-db
 `corpus build normalize-works` is fixture-only. It requires an artifact root that
 passes `corpus validate build`, and it refuses to run without `--persist-db`
 because the normalized projection is written only to Postgres.
+
+After projection, `uv run corpus audit phase-one --check-db` also verifies the
+expected normalized `works`, `work_identifiers`, and `work_sources` counts.
+Without `--check-db`, the Phase One audit remains filesystem/artifact-only and
+does not require Postgres.
 
 The default fixture build writes raw artifacts under `.artifacts/sha256/`,
 writes the build report to

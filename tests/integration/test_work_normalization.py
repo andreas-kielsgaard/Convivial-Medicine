@@ -85,6 +85,31 @@ def test_fixture_work_projection_creates_expected_rows(tmp_path: Path) -> None:
         assert "source_links: 14" in repeat_result.output
         assert "db_persisted: True" in repeat_result.output
 
+        audit_result = runner.invoke(
+            app,
+            [
+                "audit",
+                "phase-one",
+                "--manifest",
+                str(SEED_MANIFEST_PATH),
+                "--artifact-root",
+                str(artifact_root),
+                "--check-db",
+            ],
+        )
+
+        assert audit_result.exit_code == 0, audit_result.output
+        assert "PASS build_report:" in audit_result.output
+        assert "PASS validation: raw_artifacts=6/6 source_snapshots=6/6" in audit_result.output
+        assert (
+            "PASS slice_export: source_steps=6 raw_artifacts=6 source_snapshots=6"
+            in audit_result.output
+        )
+        assert "PASS db_projection: works=3/3 identifiers=8/8 source_links=14/14" in (
+            audit_result.output
+        )
+        assert "status: ok" in audit_result.output
+
         with engine.connect() as connection:
             repeat_counts = _fixture_projection_counts(connection)
             works = (
