@@ -2,9 +2,13 @@
 
 Phase One has intentionally narrow source boundaries.
 
-PubMed defines corpus membership. PubMed ESearch is the membership adapter and
-stores raw response bytes by content hash before parsing. PubMed ESummary and
-EFetch remain deferred.
+PubMed defines corpus membership. PubMed ESearch is the membership adapter.
+PubMed ESummary and EFetch retrieve known-PMID PubMed-side snapshots. All three
+store raw response bytes by content hash before parsing.
+
+Failed PubMed HTTP responses are also provenance artifacts: live non-2xx
+ESearch, ESummary, and EFetch responses are written to the artifact store and
+represented by source snapshot manifests before the adapter raises.
 
 PMC is the full-text gate. Full text must come through PMC-approved services
 such as PMC ID Converter and PMC BioC when available. Do not scrape PMC HTML.

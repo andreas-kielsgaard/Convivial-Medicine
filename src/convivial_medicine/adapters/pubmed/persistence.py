@@ -10,13 +10,13 @@ from convivial_medicine.adapters.pubmed.efetch import (
 )
 from convivial_medicine.adapters.pubmed.esearch import (
     PUBMED_ESEARCH_OPERATION,
-    PUBMED_SOURCE_NAME,
     PubMedESearchAdapterResult,
 )
 from convivial_medicine.adapters.pubmed.esummary import (
     PUBMED_ESUMMARY_OPERATION,
     PubMedESummaryAdapterResult,
 )
+from convivial_medicine.adapters.pubmed.source_response import PUBMED_SOURCE_NAME
 from convivial_medicine.domain.manifests import QueryManifest
 from convivial_medicine.storage.repositories import (
     persist_query_manifest,

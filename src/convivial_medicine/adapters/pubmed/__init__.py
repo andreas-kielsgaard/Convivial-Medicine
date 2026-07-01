@@ -8,6 +8,7 @@ from convivial_medicine.adapters.pubmed.efetch import (
     process_efetch_response_bytes,
     run_efetch,
 )
+from convivial_medicine.adapters.pubmed.errors import PubMedHTTPStatusError
 from convivial_medicine.adapters.pubmed.esearch import (
     PUBMED_ESEARCH_ENDPOINT,
     PubMedESearchAdapterResult,
@@ -37,6 +38,7 @@ __all__ = [
     "PubMedEFetchResult",
     "PubMedESearchAdapterResult",
     "PubMedESearchResult",
+    "PubMedHTTPStatusError",
     "PubMedESummaryAdapterResult",
     "PubMedESummaryResult",
     "build_efetch_params",

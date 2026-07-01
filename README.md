@@ -21,7 +21,9 @@ then record manifests and snapshots from those immutable bytes.
 PubMed ESearch is the first adapter boundary: it defines corpus membership.
 PubMed ESummary retrieves PubMed-side metadata for known PMIDs. PubMed EFetch
 retrieves known-PMID PubMed record snapshots. Raw ESearch JSON, ESummary JSON,
-and EFetch XML bytes are stored before parsing.
+and EFetch XML bytes are stored before parsing. Live non-2xx PubMed HTTP
+responses are also stored as raw artifacts and represented by source snapshot
+manifests before the adapter reports the HTTP failure.
 
 ESearch can optionally persist query manifest, source snapshot, and snapshot
 manifest records to Postgres with `corpus query pubmed --persist-db`. Database
