@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pytest import MonkeyPatch
@@ -98,7 +99,50 @@ def test_seed_build_default_uses_fixture_mode_without_network(
     assert "openalex.requested_id: 11111111" in result.output
     assert "source_snapshots: 6" in result.output
     assert "db_persisted: False" in result.output
+    assert (
+        f"build_report: {tmp_path / 'build-reports' / 'vitamin_D_ms_seed_v1.json'}" in result.output
+    )
     assert any((tmp_path / "sha256").glob("*/*"))
+
+
+def test_seed_build_writes_report(tmp_path: Path) -> None:
+    report_path = tmp_path / "build-reports" / "vitamin_D_ms_seed_v1.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert report_path.is_file()
+    assert f"build_report: {report_path}" in result.output
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["manifest_name"] == "vitamin_D_ms_seed_v1"
+    assert report["manifest_hash"].startswith("sha256:")
+    assert report["mode"] == "fixture"
+    assert report["step_order"] == [
+        "pubmed_esearch",
+        "pubmed_esummary",
+        "pubmed_efetch",
+        "pmc_idconv",
+        "pmc_bioc",
+        "openalex_work",
+    ]
+    assert len(report["source_snapshot_manifest_hashes"]) == 6
+    assert len(report["raw_artifact_hashes"]) == 6
+    assert report["counts"] == {
+        "raw_artifacts": 6,
+        "source_snapshots": 6,
+        "steps": 6,
+    }
+    assert report["db_persisted"] is False
 
 
 def test_seed_build_live_requires_opt_in_credentials(
@@ -154,6 +198,11 @@ def test_validate_build_passes_for_completed_fixture_seed(tmp_path: Path) -> Non
 
     assert result.exit_code == 0, result.output
     assert "status: ok" in result.output
+    assert (
+        f"build_report: {artifact_root / 'build-reports' / 'vitamin_D_ms_seed_v1.json'}"
+        in result.output
+    )
+    assert "build_report_present: True" in result.output
     assert "steps: 6/6" in result.output
     assert "source_snapshots: 6/6" in result.output
     assert "raw_artifacts: 6/6" in result.output
@@ -185,6 +234,43 @@ def test_validate_build_fails_when_artifact_root_is_missing(tmp_path: Path) -> N
     assert "missing_raw_artifacts: sha256:" in result.output
     assert "artifact root is missing" in result.output
     assert "missing raw artifacts: 6" in result.output
+
+
+def test_validate_build_fails_when_report_is_missing(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    report_path = artifact_root / "build-reports" / "vitamin_D_ms_seed_v1.json"
+    report_path.unlink()
+
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "build",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "build_report_present: False" in result.output
+    assert "raw_artifacts: 6/6" in result.output
+    assert "build report is missing" in result.output
 
 
 def test_validate_build_fails_when_artifact_root_is_incomplete(tmp_path: Path) -> None:
@@ -220,6 +306,49 @@ def test_validate_build_fails_when_artifact_root_is_incomplete(tmp_path: Path) -
     assert "status: failed" in result.output
     assert "raw_artifacts: 5/6" in result.output
     assert "missing_raw_artifacts: sha256:" in result.output
+    assert "missing raw artifacts: 1" in result.output
+
+
+def test_validate_build_fails_when_report_hash_list_disagrees_with_artifacts(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    report_path = artifact_root / "build-reports" / "vitamin_D_ms_seed_v1.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["raw_artifact_hashes"][0] = "sha256:" + "f" * 64
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "build",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "build_report_present: True" in result.output
+    assert "raw_artifacts: 5/6" in result.output
+    assert "missing_raw_artifacts: sha256:" in result.output
+    assert "raw artifact hash list mismatch" in result.output
     assert "missing raw artifacts: 1" in result.output
 
 
