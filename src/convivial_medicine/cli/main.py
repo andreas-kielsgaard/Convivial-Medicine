@@ -67,6 +67,10 @@ from convivial_medicine.orchestration.seed import (
     SeedRunSummary,
     run_seed_build,
 )
+from convivial_medicine.orchestration.validation import (
+    BuildValidationReport,
+    validate_fixture_seed_build,
+)
 from convivial_medicine.storage.artifacts import LocalArtifactStore
 from convivial_medicine.storage.db import (
     DatabaseConnectionError,
@@ -1112,9 +1116,58 @@ def _exit_openalex_http_status_error(exc: OpenAlexHTTPStatusError) -> NoReturn:
 
 
 @validate_app.command("build")
-def validate_build() -> None:
-    """Validate a corpus build."""
-    _not_implemented("corpus validate build")
+def validate_build(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Seed query manifest to validate against."),
+    ] = DEFAULT_QUERY_MANIFEST_PATH,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Completed local artifact root to inspect."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    fixture_root: Annotated[
+        Path,
+        typer.Option("--fixture-root", help="Fixture root used to compute expected hashes."),
+    ] = DEFAULT_FIXTURE_ROOT,
+) -> None:
+    """Validate a completed fixture seed build."""
+    query_manifest = load_query_manifest(manifest)
+    try:
+        report = validate_fixture_seed_build(
+            query_manifest=query_manifest,
+            artifact_root=artifact_root,
+            fixture_paths=SeedFixturePaths.from_root(fixture_root),
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    _print_build_validation_report(report)
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
+def _print_build_validation_report(report: BuildValidationReport) -> None:
+    typer.echo(f"status: {'ok' if report.ok else 'failed'}")
+    typer.echo(f"manifest_name: {report.manifest_name}")
+    typer.echo(f"manifest_hash: {report.manifest_hash}")
+    typer.echo(f"artifact_root: {report.artifact_root}")
+    typer.echo(f"steps: {report.actual_step_count}/{report.expected_step_count}")
+    typer.echo(
+        "source_snapshots: "
+        f"{report.actual_source_snapshot_count}/{report.expected_source_snapshot_count}"
+    )
+    typer.echo(
+        "raw_artifacts: "
+        f"{len(report.present_raw_artifact_hashes)}/{len(report.raw_artifact_hashes)}"
+    )
+    typer.echo(f"raw_artifact_hashes: {_comma_join_or_none(report.raw_artifact_hashes)}")
+    typer.echo(
+        "source_snapshot_manifest_hashes: "
+        f"{_comma_join_or_none(report.source_snapshot_manifest_hashes)}"
+    )
+    typer.echo(f"missing_raw_artifacts: {_comma_join_or_none(report.missing_raw_artifact_hashes)}")
+    typer.echo(f"errors: {_comma_join_or_none(report.errors)}")
 
 
 @export_app.command("slice")

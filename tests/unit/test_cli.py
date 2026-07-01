@@ -125,6 +125,104 @@ def test_seed_build_live_requires_opt_in_credentials(
     assert "NCBI_EMAIL is required for --live seed builds" in result.output
 
 
+def test_validate_build_passes_for_completed_fixture_seed(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "build",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "status: ok" in result.output
+    assert "steps: 6/6" in result.output
+    assert "source_snapshots: 6/6" in result.output
+    assert "raw_artifacts: 6/6" in result.output
+    assert "manifest_hash: sha256:" in result.output
+    assert "raw_artifact_hashes: sha256:" in result.output
+    assert "source_snapshot_manifest_hashes: sha256:" in result.output
+    assert "missing_raw_artifacts: none" in result.output
+    assert "errors: none" in result.output
+
+
+def test_validate_build_fails_when_artifact_root_is_missing(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "missing-artifacts"
+
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "build",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "raw_artifacts: 0/6" in result.output
+    assert "missing_raw_artifacts: sha256:" in result.output
+    assert "artifact root is missing" in result.output
+    assert "missing raw artifacts: 6" in result.output
+
+
+def test_validate_build_fails_when_artifact_root_is_incomplete(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    build_result = runner.invoke(
+        app,
+        [
+            "build",
+            "seed",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+    assert build_result.exit_code == 0, build_result.output
+
+    next((artifact_root / "sha256").glob("*/*")).unlink()
+
+    result = runner.invoke(
+        app,
+        [
+            "validate",
+            "build",
+            "--manifest",
+            "manifests/vitamin_D_ms_seed_v1.json",
+            "--artifact-root",
+            str(artifact_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "status: failed" in result.output
+    assert "raw_artifacts: 5/6" in result.output
+    assert "missing_raw_artifacts: sha256:" in result.output
+    assert "missing raw artifacts: 1" in result.output
+
+
 def test_pubmed_query_fixture_mode_prints_summary(tmp_path) -> None:
     result = runner.invoke(
         app,
