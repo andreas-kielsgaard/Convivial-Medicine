@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,7 +23,15 @@ class DatabaseConnectionError(RuntimeError):
 
 def make_engine(settings: Settings | None = None, *, database_url: str | None = None) -> Engine:
     resolved_settings = settings or get_settings()
-    return create_engine(database_url or resolved_settings.database_url, pool_pre_ping=True)
+    resolved_database_url = database_url or resolved_settings.database_url
+    connect_args: dict[str, object] = {}
+    if make_url(resolved_database_url).get_backend_name() == "postgresql":
+        connect_args["connect_timeout"] = 5
+    return create_engine(
+        resolved_database_url,
+        pool_pre_ping=True,
+        connect_args=connect_args,
+    )
 
 
 def make_session_factory(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -27,6 +28,14 @@ class PubMedESearchAdapterResult:
     raw_artifact: StoredArtifact
     source_snapshot_manifest: SourceSnapshotManifest
     parsed: PubMedESearchResult
+    endpoint: str
+    request_fingerprint: str
+    request_metadata: dict[str, Any]
+    http_status: int
+    content_type: str
+    provider_payload: dict[str, Any]
+    response_metadata: dict[str, Any]
+    retrieved_at: datetime
 
 
 def build_esearch_params(
@@ -59,14 +68,28 @@ def process_esearch_response_bytes(
     request_params: dict[str, str],
     http_status: int,
     content_type: str | None,
+    retrieved_at: datetime | None = None,
 ) -> PubMedESearchAdapterResult:
+    resolved_retrieved_at = retrieved_at or datetime.now(UTC)
+    resolved_content_type = content_type or "application/octet-stream"
+    resolved_request_fingerprint = request_fingerprint(
+        method="GET",
+        endpoint=endpoint,
+        params=request_params,
+    )
+    request_metadata = {
+        "endpoint": endpoint,
+        "method": "GET",
+        "params": redacted_request_params(request_params),
+    }
     raw_artifact = artifact_store.write_bytes(raw_bytes)
     manifest = _build_source_snapshot_manifest(
         raw_payload_hash=raw_artifact.artifact_hash,
         endpoint=endpoint,
         request_params=request_params,
         http_status=http_status,
-        content_type=content_type,
+        content_type=resolved_content_type,
+        resolved_request_fingerprint=resolved_request_fingerprint,
     )
     provider_payload = _parse_json_bytes(raw_bytes)
     parsed = PubMedESearchResult.from_provider_payload(
@@ -74,10 +97,25 @@ def process_esearch_response_bytes(
         source_snapshot_manifest_hash=manifest.manifest_hash(),
         raw_payload_hash=raw_artifact.artifact_hash,
     )
+    response_metadata = {
+        "count": parsed.count,
+        "pmids_returned": len(parsed.pmids),
+        "query_key_present": parsed.query_key is not None,
+        "retmax": parsed.retmax,
+        "webenv_present": parsed.webenv is not None,
+    }
     return PubMedESearchAdapterResult(
         raw_artifact=raw_artifact,
         source_snapshot_manifest=manifest,
         parsed=parsed,
+        endpoint=endpoint,
+        request_fingerprint=resolved_request_fingerprint,
+        request_metadata=request_metadata,
+        http_status=http_status,
+        content_type=resolved_content_type,
+        provider_payload=provider_payload,
+        response_metadata=response_metadata,
+        retrieved_at=resolved_retrieved_at,
     )
 
 
@@ -114,7 +152,8 @@ def _build_source_snapshot_manifest(
     endpoint: str,
     request_params: dict[str, str],
     http_status: int,
-    content_type: str | None,
+    content_type: str,
+    resolved_request_fingerprint: str,
 ) -> SourceSnapshotManifest:
     return SourceSnapshotManifest(
         manifest_version="1",
@@ -126,11 +165,7 @@ def _build_source_snapshot_manifest(
             "endpoint": endpoint,
             "request_method": "GET",
             "request_params": redacted_request_params(request_params),
-            "request_fingerprint": request_fingerprint(
-                method="GET",
-                endpoint=endpoint,
-                params=request_params,
-            ),
+            "request_fingerprint": resolved_request_fingerprint,
             "http_status": http_status,
             "content_type": content_type,
         },

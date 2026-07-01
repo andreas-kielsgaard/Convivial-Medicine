@@ -76,4 +76,5 @@ def test_pubmed_query_fixture_mode_prints_summary(tmp_path) -> None:
     assert "query_key_present: True" in result.output
     assert "raw_payload_hash: sha256:" in result.output
     assert "manifest_hash: sha256:" in result.output
+    assert "db_persisted: False" in result.output
     assert any((tmp_path / "sha256").glob("*/*"))
