@@ -15,14 +15,18 @@ Later adapters must write raw source response bytes to content-addressed storage
 before parsing. Parsed snapshots and derived artifacts can then refer back to
 the stored payload hash and parent manifest hashes.
 
-PubMed ESearch is now the first adapter. It defines membership for the seed
-corpus and preserves raw response bytes before parsing. PubMed ESummary and
-EFetch remain deferred.
+PubMed ESearch defines membership for the seed corpus. PubMed ESummary retrieves
+PubMed-side metadata for known PMIDs. Both adapters preserve raw response bytes
+before parsing. PubMed EFetch remains deferred.
 
 `corpus query pubmed` remains database-free by default. Passing `--persist-db`
 explicitly attempts a Postgres connection and stores the query manifest, raw
 source snapshot metadata, and source snapshot manifest rows for fixture or live
 ESearch runs.
+
+`corpus fetch pubmed-summary` is also database-free by default. Passing
+`--persist-db` stores source snapshot metadata and the source snapshot manifest
+for fixture or live ESummary runs, but does not create normalized works yet.
 
 ## Source Order
 
@@ -33,9 +37,9 @@ ESearch runs.
 
 ## Deferred Work
 
-- PubMed ESummary and EFetch adapters.
+- PubMed EFetch adapter.
 - Live PMC and OpenAlex adapters.
-- Source adapter implementations beyond PubMed ESearch and the schema v1
+- Source adapter implementations beyond PubMed ESearch/ESummary and the schema v1
   persistence boundary.
 - Task orchestration behavior beyond the initial build run tables.
 - Source retry, rate-limit, and provenance policies.
