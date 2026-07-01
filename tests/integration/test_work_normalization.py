@@ -64,6 +64,29 @@ def test_fixture_work_projection_creates_expected_rows(tmp_path: Path) -> None:
         assert "db_persisted: True" in result.output
 
         with engine.connect() as connection:
+            first_counts = _fixture_projection_counts(connection)
+
+        repeat_result = runner.invoke(
+            app,
+            [
+                "build",
+                "normalize-works",
+                "--manifest",
+                str(SEED_MANIFEST_PATH),
+                "--artifact-root",
+                str(artifact_root),
+                "--persist-db",
+            ],
+        )
+
+        assert repeat_result.exit_code == 0, repeat_result.output
+        assert "works: 3" in repeat_result.output
+        assert "identifiers: 8" in repeat_result.output
+        assert "source_links: 14" in repeat_result.output
+        assert "db_persisted: True" in repeat_result.output
+
+        with engine.connect() as connection:
+            repeat_counts = _fixture_projection_counts(connection)
             works = (
                 connection.execute(
                     text(
@@ -129,6 +152,36 @@ def test_fixture_work_projection_creates_expected_rows(tmp_path: Path) -> None:
         row["source_projection"]["source_snapshot_manifest_hash"].startswith("sha256:")
         for row in source_links
     )
+    assert first_counts == {"works": 3, "identifiers": 8, "source_links": 14}
+    assert repeat_counts == first_counts
+
+
+def _fixture_projection_counts(connection) -> dict[str, int]:
+    return {
+        "works": connection.execute(
+            text(
+                "select count(*) from works "
+                "where normalized_payload->>'projection_version' = :version"
+            ),
+            {"version": FIXTURE_WORK_PROJECTION_VERSION},
+        ).scalar_one(),
+        "identifiers": connection.execute(
+            text(
+                "select count(*) from work_identifiers wi "
+                "join works w on w.work_id = wi.work_id "
+                "where w.normalized_payload->>'projection_version' = :version"
+            ),
+            {"version": FIXTURE_WORK_PROJECTION_VERSION},
+        ).scalar_one(),
+        "source_links": connection.execute(
+            text(
+                "select count(*) from work_sources ws "
+                "join works w on w.work_id = ws.work_id "
+                "where w.normalized_payload->>'projection_version' = :version"
+            ),
+            {"version": FIXTURE_WORK_PROJECTION_VERSION},
+        ).scalar_one(),
+    }
 
 
 def _delete_fixture_projection_rows(engine) -> None:

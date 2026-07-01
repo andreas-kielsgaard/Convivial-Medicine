@@ -6,7 +6,8 @@ preserves raw source bytes before parsing, writes a build report, validates the
 artifact root, and exports a deterministic JSON slice.
 
 The fixture workflow is local and database-free by default. Optional database
-persistence and live network mode are explicit flags.
+persistence, fixture-only work normalization, and live network mode are explicit
+flags.
 
 ## Build -> Validate -> Export
 
@@ -149,6 +150,19 @@ Individual source adapter commands also accept `--persist-db`, but the fixture
 workflow should normally use `corpus build seed --persist-db` so the persisted
 rows match the same source order as the build report.
 
+## Normalized Work Projection
+
+After a fixture build validates, project it into the normalized work tables:
+
+```powershell
+uv run corpus build normalize-works --persist-db
+```
+
+This command is fixture-only: it replays the committed fixture sources, requires
+the artifact root to pass `corpus validate build`, and writes normalized `works`,
+`work_identifiers`, and `work_sources` rows only when `--persist-db` is present.
+It refuses to run without `--persist-db`.
+
 ## Live Mode
 
 Live mode makes network calls instead of replaying fixtures:
@@ -176,12 +190,13 @@ report.
 
 ## Current Boundaries
 
-The Phase One fixture workflow captures source responses and writes source
-snapshot manifests. It does not normalize works yet.
+The Phase One fixture workflow captures source responses, writes source snapshot
+manifests, and can project validated fixture artifacts into narrow normalized
+work rows.
 
 Current non-goals:
 
-- Work normalization and conflict resolution.
+- Live work normalization and conflict resolution.
 - OpenAlex search or bulk enrichment.
 - PMC HTML scraping or unrestricted full-text reuse interpretation.
 - Embeddings, vector databases, graph databases, notebooks, or product UI.

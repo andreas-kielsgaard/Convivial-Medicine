@@ -7,8 +7,8 @@ The first acceptance target is a reproducible 50-paper
 `vitamin_D_ms_seed_v1` corpus build. The current rails use PubMed for corpus
 membership, PMC-approved services for source payload eligibility and retrieval,
 OpenAlex singleton lookups for enrichment, content-addressed artifacts, and
-optional Postgres source snapshot persistence. Normalized work state remains
-future work.
+optional Postgres source snapshot persistence. A narrow fixture-only normalized
+work projection is available for validated fixture artifacts.
 
 Phase One now has a completed deterministic fixture workflow for
 `vitamin_D_ms_seed_v1`: build the seed corpus from committed source fixtures,
@@ -68,8 +68,8 @@ with `corpus enrich openalex --persist-db`; it does not create normalized works
 or corpus membership.
 
 The current Phase One boundary is source capture, source snapshot manifests,
-fixture build reports, and deterministic fixture slice exports. It does not
-normalize works yet.
+fixture build reports, deterministic fixture slice exports, and the fixture-only
+normalized work projection.
 
 ## Development
 
@@ -108,6 +108,16 @@ uv run corpus build seed
 uv run corpus validate build
 uv run corpus export slice --output .artifacts/exports/vitamin_D_ms_seed_v1.fixture-slice.json
 ```
+
+Project a validated fixture build into normalized work tables:
+
+```powershell
+uv run corpus build normalize-works --persist-db
+```
+
+`corpus build normalize-works` is fixture-only. It requires an artifact root that
+passes `corpus validate build`, and it refuses to run without `--persist-db`
+because the normalized projection is written only to Postgres.
 
 The default fixture build writes raw artifacts under `.artifacts/sha256/`,
 writes the build report to
