@@ -1,0 +1,58 @@
+{
+  "header": {
+    "type": "esummary",
+    "version": "0.3"
+  },
+  "result": {
+    "uids": [
+      "11111111",
+      "22222222",
+      "33333333"
+    ],
+    "11111111": {
+      "uid": "11111111",
+      "title": "Vitamin D status and multiple sclerosis risk.",
+      "source": "Neurology",
+      "fulljournalname": "Neurology",
+      "pubdate": "2021 Mar",
+      "sortpubdate": "2021/03/01 00:00",
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "value": "11111111"
+        },
+        {
+          "idtype": "doi",
+          "value": "10.1000/vitd-ms.2021.001"
+        }
+      ]
+    },
+    "22222222": {
+      "uid": "22222222",
+      "title": "Serum vitamin D and disease activity in multiple sclerosis.",
+      "source": "Mult Scler",
+      "fulljournalname": "Multiple Sclerosis Journal",
+      "pubdate": "2020 Dec",
+      "sortpubdate": "2020/12/01 00:00",
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "value": "22222222"
+        }
+      ]
+    },
+    "33333333": {
+      "uid": "33333333",
+      "title": "A pilot study of vitamin D supplementation in MS.",
+      "source": "J Neuroimmunol",
+      "fulljournalname": "Journal of Neuroimmunology",
+      "epubdate": "2019 Aug 15",
+      "articleids": [
+        {
+          "idtype": "pubmed",
+          "value": "33333333"
+        }
+      ]
+    }
+  }
+}

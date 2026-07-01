@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,9 +13,12 @@ from convivial_medicine.adapters.pubmed.esearch import (
     build_esearch_params,
     process_esearch_response_bytes,
 )
+from convivial_medicine.adapters.pubmed.persistence import (
+    source_snapshot_db_values_from_pubmed_esearch,
+)
 from convivial_medicine.config import Settings
 from convivial_medicine.domain.manifests import load_query_manifest
-from convivial_medicine.storage import models
+from convivial_medicine.storage import models, repositories
 from convivial_medicine.storage.artifacts import LocalArtifactStore
 from convivial_medicine.storage.repositories import (
     PersistenceConflictError,
@@ -23,7 +27,6 @@ from convivial_medicine.storage.repositories import (
     persist_source_snapshot,
     query_manifest_db_values,
     snapshot_manifest_db_values,
-    source_snapshot_db_values_from_pubmed_esearch,
 )
 
 SEED_MANIFEST_PATH = Path("manifests/vitamin_D_ms_seed_v1.json")
@@ -56,6 +59,12 @@ def test_query_manifest_mapping_uses_domain_db_values() -> None:
     assert values["manifest_hash"].startswith("sha256:")
     assert values["source_name"] == "pubmed"
     assert values["query"] == manifest.term
+
+
+def test_storage_repositories_do_not_import_pubmed_adapter_modules() -> None:
+    source = inspect.getsource(repositories)
+
+    assert "convivial_medicine.adapters.pubmed" not in source
 
 
 def test_pubmed_esearch_source_snapshot_mapping_populates_expected_values(tmp_path: Path) -> None:

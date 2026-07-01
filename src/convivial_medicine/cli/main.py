@@ -13,6 +13,17 @@ from convivial_medicine.adapters.pubmed.esearch import (
     process_esearch_response_bytes,
     run_esearch,
 )
+from convivial_medicine.adapters.pubmed.esummary import (
+    PUBMED_ESUMMARY_ENDPOINT,
+    PubMedESummaryAdapterResult,
+    build_esummary_params,
+    process_esummary_response_bytes,
+    run_esummary,
+)
+from convivial_medicine.adapters.pubmed.persistence import (
+    persist_pubmed_esearch_result,
+    persist_pubmed_esummary_result,
+)
 from convivial_medicine.config import Settings, get_settings
 from convivial_medicine.domain.manifests import QueryManifest, load_query_manifest
 from convivial_medicine.storage.artifacts import LocalArtifactStore
@@ -22,7 +33,6 @@ from convivial_medicine.storage.db import (
     make_engine,
     make_session_factory,
 )
-from convivial_medicine.storage.repositories import persist_pubmed_esearch_result
 
 DEFAULT_QUERY_MANIFEST_PATH = Path("manifests/vitamin_D_ms_seed_v1.json")
 DEFAULT_ARTIFACT_ROOT = Path(".artifacts")
@@ -215,9 +225,131 @@ def build_seed() -> None:
 
 
 @fetch_app.command("pubmed-summary")
-def fetch_pubmed_summary() -> None:
+def fetch_pubmed_summary(
+    pmids: Annotated[
+        str | None,
+        typer.Option("--pmids", help="Comma-separated PubMed IDs to summarize."),
+    ] = None,
+    artifact_root: Annotated[
+        Path,
+        typer.Option("--artifact-root", help="Local content-addressed artifact root."),
+    ] = DEFAULT_ARTIFACT_ROOT,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Make a live PubMed ESummary network call."),
+    ] = False,
+    fixture: Annotated[
+        Path | None,
+        typer.Option(
+            "--fixture",
+            help="Read saved PubMed ESummary response bytes instead of calling the network.",
+        ),
+    ] = None,
+    persist_db: Annotated[
+        bool,
+        typer.Option(
+            "--persist-db",
+            help="Persist source snapshot and snapshot manifest rows to Postgres.",
+        ),
+    ] = False,
+) -> None:
     """Fetch PubMed summary data for selected records."""
-    _not_implemented("corpus fetch pubmed-summary")
+    if live and fixture is not None:
+        typer.echo("Use either --live or --fixture, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    if not live and fixture is None:
+        typer.echo(
+            "No PubMed summary fetch run. Pass --pmids IDS with --fixture PATH "
+            "to replay bytes or --live to call NCBI."
+        )
+        return
+
+    requested_pmids = _parse_pmids_option(pmids)
+    if not requested_pmids:
+        typer.echo("--pmids must include at least one PMID.", err=True)
+        raise typer.Exit(code=2)
+
+    settings = get_settings()
+    artifact_store = LocalArtifactStore(artifact_root)
+
+    if persist_db:
+        try:
+            check_database_connection(settings)
+        except DatabaseConnectionError as exc:
+            typer.echo(f"database_persistence: failed ({exc})", err=True)
+            raise typer.Exit(code=1) from exc
+
+    if fixture is not None:
+        result = process_esummary_response_bytes(
+            raw_bytes=fixture.read_bytes(),
+            artifact_store=artifact_store,
+            endpoint=PUBMED_ESUMMARY_ENDPOINT,
+            request_params=build_esummary_params(requested_pmids),
+            requested_pmids=requested_pmids,
+            http_status=200,
+            content_type="application/json",
+        )
+        _persist_pubmed_esummary_if_requested(
+            persist_db=persist_db,
+            result=result,
+            settings=settings,
+        )
+        _print_pubmed_esummary_summary(result, db_persisted=persist_db)
+        return
+
+    if not settings.ncbi_email:
+        typer.echo("NCBI_EMAIL is required for --live PubMed ESummary calls.", err=True)
+        raise typer.Exit(code=1)
+
+    result = run_esummary(
+        pmids=requested_pmids,
+        artifact_store=artifact_store,
+        settings=settings,
+    )
+    _persist_pubmed_esummary_if_requested(
+        persist_db=persist_db,
+        result=result,
+        settings=settings,
+    )
+    _print_pubmed_esummary_summary(result, db_persisted=persist_db)
+
+
+def _parse_pmids_option(pmids: str | None) -> tuple[str, ...]:
+    if pmids is None:
+        return ()
+    return tuple(pmid.strip() for pmid in pmids.split(",") if pmid.strip())
+
+
+def _persist_pubmed_esummary_if_requested(
+    *,
+    persist_db: bool,
+    result: PubMedESummaryAdapterResult,
+    settings: Settings,
+) -> None:
+    if not persist_db:
+        return
+
+    engine = make_engine(settings)
+    try:
+        session_factory = make_session_factory(engine=engine)
+        with session_factory.begin() as session:
+            persist_pubmed_esummary_result(session, result=result)
+    finally:
+        engine.dispose()
+
+
+def _print_pubmed_esummary_summary(
+    result: PubMedESummaryAdapterResult,
+    *,
+    db_persisted: bool,
+) -> None:
+    parsed = result.parsed
+    typer.echo(f"summaries_returned: {parsed.summaries_returned}")
+    typer.echo(f"pmids_returned: {len(parsed.returned_pmids)}")
+    typer.echo(f"raw_payload_hash: {parsed.raw_payload_hash}")
+    typer.echo(f"manifest_hash: {parsed.source_snapshot_manifest_hash}")
+    typer.echo(f"db_persisted: {db_persisted}")
 
 
 @fetch_app.command("pubmed-records")

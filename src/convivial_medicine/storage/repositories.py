@@ -5,11 +5,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from convivial_medicine.adapters.pubmed.esearch import (
-    PUBMED_ESEARCH_OPERATION,
-    PUBMED_SOURCE_NAME,
-    PubMedESearchAdapterResult,
-)
 from convivial_medicine.domain.manifests import (
     QueryManifest as DomainQueryManifest,
 )
@@ -27,25 +22,6 @@ def query_manifest_db_values(manifest: DomainQueryManifest) -> dict[str, Any]:
     return manifest.to_db_values()
 
 
-def source_snapshot_db_values_from_pubmed_esearch(
-    result: PubMedESearchAdapterResult,
-) -> dict[str, Any]:
-    return {
-        "snapshot_hash": result.raw_artifact.artifact_hash,
-        "source_name": PUBMED_SOURCE_NAME,
-        "operation": PUBMED_ESEARCH_OPERATION,
-        "source_record_id": None,
-        "request_fingerprint": result.request_fingerprint,
-        "request_metadata": result.request_metadata,
-        "http_status": result.http_status,
-        "content_type": result.content_type,
-        "provider_payload": result.provider_payload,
-        "response_metadata": result.response_metadata,
-        "retrieved_at": result.retrieved_at,
-        "raw_artifact_uri": result.raw_artifact.uri,
-    }
-
-
 def snapshot_manifest_db_values(
     manifest: DomainSourceSnapshotManifest,
 ) -> dict[str, Any]:
@@ -56,7 +32,7 @@ def snapshot_manifest_db_values(
 
 def persist_query_manifest(session: Session, manifest: DomainQueryManifest) -> str:
     values = query_manifest_db_values(manifest)
-    return _insert_or_validate(
+    return insert_or_validate(
         session=session,
         model_cls=models.QueryManifest,
         key_field="manifest_hash",
@@ -69,7 +45,7 @@ def persist_source_snapshot(
     session: Session,
     values: Mapping[str, Any],
 ) -> str:
-    return _insert_or_validate(
+    return insert_or_validate(
         session=session,
         model_cls=models.SourceSnapshot,
         key_field="snapshot_hash",
@@ -95,7 +71,7 @@ def persist_snapshot_manifest(
     manifest: DomainSourceSnapshotManifest,
 ) -> str:
     values = snapshot_manifest_db_values(manifest)
-    return _insert_or_validate(
+    return insert_or_validate(
         session=session,
         model_cls=models.SnapshotManifest,
         key_field="manifest_hash",
@@ -104,18 +80,7 @@ def persist_snapshot_manifest(
     )
 
 
-def persist_pubmed_esearch_result(
-    session: Session,
-    *,
-    query_manifest: DomainQueryManifest,
-    result: PubMedESearchAdapterResult,
-) -> None:
-    persist_query_manifest(session, query_manifest)
-    persist_source_snapshot(session, source_snapshot_db_values_from_pubmed_esearch(result))
-    persist_snapshot_manifest(session, result.source_snapshot_manifest)
-
-
-def _insert_or_validate(
+def insert_or_validate(
     *,
     session: Session,
     model_cls: type[Any],
